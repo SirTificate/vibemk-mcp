@@ -415,17 +415,18 @@ class CheckMKMCPServer:
         logger.info(f"Initialize request received from client, ID: {request_id}")
         logger.debug(f"Initialize params: {params}")
 
-        # Use client's protocol version if provided, otherwise use our default
-        client_protocol_version = params.get("protocolVersion", self.mcp_config.protocol_version)
+        negotiated = self.mcp_config.negotiate_protocol_version(params.get("protocolVersion"))
         logger.info(
-            f"Protocol version negotiation: client={client_protocol_version}, server={self.mcp_config.protocol_version}"
+            "Protocol version negotiation: client=%s, answered=%s",
+            params.get("protocolVersion"),
+            negotiated,
         )
 
         response = {
             "jsonrpc": "2.0",
             "id": request_id,
             "result": {
-                "protocolVersion": client_protocol_version,  # Echo client's version for compatibility
+                "protocolVersion": negotiated,
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": self.mcp_config.server_name, "version": self.mcp_config.server_version},
             },

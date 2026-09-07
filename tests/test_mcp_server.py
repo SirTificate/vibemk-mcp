@@ -225,3 +225,18 @@ class TestMCPServer:
             for i, response in enumerate(responses):
                 assert response["id"] == f"test-{i}"
                 assert "result" in response
+
+    @pytest.mark.asyncio
+    async def test_initialize_never_echoes_an_unsupported_version(self, mcp_server):
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "1999-01-01-BOGUS", "capabilities": {}},
+        }
+
+        response = await mcp_server.handle_request(request)
+
+        answered = response["result"]["protocolVersion"]
+        assert answered != "1999-01-01-BOGUS"
+        assert answered in mcp_server.mcp_config.supported_protocol_versions
