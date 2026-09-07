@@ -353,7 +353,6 @@ class CheckMKMCPServer:
             "vibemk_start_bulk_discovery": self.discovery_handler,
             "vibemk_get_discovery_status": self.discovery_handler,
             "vibemk_get_bulk_discovery_status": self.discovery_handler,
-            "vibemk_get_discovery_result": self.discovery_handler,
             "vibemk_wait_for_discovery": self.discovery_handler,
             "vibemk_get_discovery_background_job": self.discovery_handler,
             # Service group management
@@ -366,18 +365,6 @@ class CheckMKMCPServer:
             "vibemk_bulk_update_service_groups": self.service_group_handler,
             "vibemk_bulk_delete_service_groups": self.service_group_handler,
         }
-
-        # Add placeholder handlers for remaining unimplemented tools
-        remaining_tools = [
-            # Notifications (still to be implemented)
-            "vibemk_get_notification_rules",
-            "vibemk_test_notification",
-        ]
-
-        # Add placeholders for not-yet-implemented tools
-        for tool_name in remaining_tools:
-            if tool_name not in self.handlers:
-                self.handlers[tool_name] = None  # Will trigger "not yet implemented" message
 
     async def handle_request(self, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Handle incoming MCP requests"""

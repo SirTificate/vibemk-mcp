@@ -1138,24 +1138,98 @@ def get_password_tools() -> List[Dict[str, Any]]:
     ]
 
 
-def get_notification_tools() -> List[Dict[str, Any]]:
-    """Notification and alerting tools"""
+def get_acknowledgement_tools() -> List[Dict[str, Any]]:
+    """Problem acknowledgement tools"""
     return [
         {
-            "name": "vibemk_get_notification_rules",
-            "description": "📢 List notification rules - Show notification configuration",
-            "inputSchema": {"type": "object", "properties": {}},
-        },
-        {
-            "name": "vibemk_test_notification",
-            "description": "🧪 Test notification - Send test notification",
+            "name": "vibemk_acknowledge_host_problem",
+            "description": "✅ Acknowledge host problem - Suppress notifications for a DOWN/UNREACHABLE host",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "contact": {"type": "string", "description": "Contact to notify"},
-                    "message": {"type": "string", "description": "Test message"},
+                    "host_name": {"type": "string", "description": "Host name"},
+                    "comment": {"type": "string", "description": "Why the problem is being acknowledged"},
+                    "sticky": {
+                        "type": "boolean",
+                        "description": "Keep the acknowledgement until the host returns to UP (default: false)",
+                    },
+                    "persistent": {
+                        "type": "boolean",
+                        "description": "Keep the comment after the acknowledgement is removed (default: false)",
+                    },
+                    "notify": {
+                        "type": "boolean",
+                        "description": "Notify contacts about the acknowledgement (default: false)",
+                    },
+                    "expire_on": {
+                        "type": "string",
+                        "description": "Optional expiry as ISO-8601, e.g. 2026-12-24T22:00:00Z",
+                    },
                 },
-                "required": ["contact"],
+                "required": ["host_name"],
+            },
+        },
+        {
+            "name": "vibemk_acknowledge_service_problem",
+            "description": "✅ Acknowledge service problem - Suppress notifications for a WARN/CRIT/UNKNOWN service",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "host_name": {"type": "string", "description": "Host name"},
+                    "service_description": {
+                        "type": "string",
+                        "description": "Service name exactly as CheckMK shows it, e.g. 'CPU utilization'",
+                    },
+                    "comment": {"type": "string", "description": "Why the problem is being acknowledged"},
+                    "sticky": {
+                        "type": "boolean",
+                        "description": "Keep the acknowledgement until the service returns to OK (default: false)",
+                    },
+                    "persistent": {
+                        "type": "boolean",
+                        "description": "Keep the comment after the acknowledgement is removed (default: false)",
+                    },
+                    "notify": {
+                        "type": "boolean",
+                        "description": "Notify contacts about the acknowledgement (default: false)",
+                    },
+                    "expire_on": {
+                        "type": "string",
+                        "description": "Optional expiry as ISO-8601, e.g. 2026-12-24T22:00:00Z",
+                    },
+                },
+                "required": ["host_name", "service_description"],
+            },
+        },
+        {
+            "name": "vibemk_list_acknowledgements",
+            "description": "📋 List acknowledgements - Show all currently acknowledged host and service problems",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "vibemk_remove_acknowledgement",
+            "description": "🗑️ Remove acknowledgement - Delete by ID, by host/service, or by comment pattern",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "acknowledgement_id": {
+                        "type": "string",
+                        "description": "Acknowledgement ID from list_acknowledgements",
+                    },
+                    "host_name": {"type": "string", "description": "Remove the acknowledgement on this host"},
+                    "service_description": {
+                        "type": "string",
+                        "description": "Restrict removal to this service on the host",
+                    },
+                    "comment_pattern": {
+                        "type": "string",
+                        "description": "Remove acknowledgements whose comment contains this text",
+                    },
+                    "delete_all_matching": {
+                        "type": "boolean",
+                        "description": "Remove every match instead of only the first (default: false)",
+                    },
+                },
             },
         },
     ]
@@ -1738,7 +1812,7 @@ def get_all_tools() -> List[Dict[str, Any]]:
     tools.extend(get_tag_management_tools())
     tools.extend(get_timeperiod_tools())
     tools.extend(get_password_tools())
-    tools.extend(get_notification_tools())
+    tools.extend(get_acknowledgement_tools())
     tools.extend(get_metrics_tools())
     tools.extend(get_debug_tools())
     tools.extend(get_host_group_rules_tools())
