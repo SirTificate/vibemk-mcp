@@ -44,7 +44,15 @@ class DiscoveryHandler:
                 return [{"type": "text", "text": "❌ Error: host_name is required"}]
 
             # Validate mode
-            valid_modes = ["new", "remove", "fix_all", "refresh", "only_host_labels"]
+            valid_modes = [
+                "new",
+                "remove",
+                "fix_all",
+                "tabula_rasa",
+                "refresh",
+                "only_host_labels",
+                "only_service_labels",
+            ]
             if mode not in valid_modes:
                 return [{"type": "text", "text": f"❌ Error: mode must be one of {valid_modes}"}]
 
@@ -264,7 +272,7 @@ class DiscoveryHandler:
             if not job_id:
                 return [{"type": "text", "text": "❌ Error: job_id is required"}]
 
-            result = self.client.get(f"objects/discovery_run/{job_id}")
+            result = self.client.get(f"objects/background_job/{job_id}")
 
             if result.get("success"):
                 data = result.get("data", {})

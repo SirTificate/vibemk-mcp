@@ -303,29 +303,6 @@ def get_service_tools() -> List[Dict[str, Any]]:
                 "required": ["host_name", "service_description"],
             },
         },
-        {
-            "name": "vibemk_discover_services",
-            "description": "🔍 Discover services - Start enhanced service discovery for hosts",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "host_name": {"type": "string", "description": "Name of the host"},
-                    "hosts": {"type": "array", "description": "List of host names for bulk discovery"},
-                    "mode": {
-                        "type": "string",
-                        "description": "Discovery mode: new, remove, fix_all, only_host_labels, only_service_labels",
-                        "default": "new",
-                    },
-                    "do_full_scan": {"type": "boolean", "description": "Perform full service scan", "default": False},
-                    "bulk_size": {"type": "number", "description": "Bulk processing size", "default": 10},
-                    "wait_for_completion": {
-                        "type": "boolean",
-                        "description": "Wait for discovery completion",
-                        "default": False,
-                    },
-                },
-            },
-        },
     ]
 
 
@@ -1572,9 +1549,21 @@ def get_discovery_tools() -> List[Dict[str, Any]]:
                     "host_name": {"type": "string", "description": "Host name to discover services on"},
                     "mode": {
                         "type": "string",
-                        "description": "Discovery mode: 'new', 'remove', 'fix_all', 'refresh', 'only_host_labels'",
+                        "description": (
+                            "Discovery mode. 'refresh' rescans the host, 'fix_all' accepts everything found, "
+                            "'tabula_rasa' removes all and rediscovers. 'new', 'remove', 'only_host_labels' and "
+                            "'only_service_labels' are the granular variants and work on already scanned data."
+                        ),
                         "default": "refresh",
-                        "enum": ["new", "remove", "fix_all", "refresh", "only_host_labels"],
+                        "enum": [
+                            "new",
+                            "remove",
+                            "fix_all",
+                            "tabula_rasa",
+                            "refresh",
+                            "only_host_labels",
+                            "only_service_labels",
+                        ],
                     },
                 },
                 "required": ["host_name"],

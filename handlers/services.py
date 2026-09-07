@@ -19,8 +19,6 @@ class ServiceHandler(BaseHandler):
                 return await self._get_services(arguments)
             elif tool_name == "vibemk_get_service_status":
                 return await self._get_service_status(arguments)
-            elif tool_name == "vibemk_discover_services":
-                return await self._discover_services(arguments.get("host_name"))
             else:
                 return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
@@ -257,48 +255,6 @@ class ServiceHandler(BaseHandler):
         except Exception as e:
             self.logger.debug(f"Direct service API failed: {e}")
 
-        # Method 2: Try LiveStatus query for real-time service monitoring data
-        try:
-            livestatus_query = f"GET services\nColumns: host_name description state plugin_output last_check last_state_change check_type\nFilter: host_name = {host_name}\nFilter: description = {service_description}"
-            livestatus_result = self.client.post(
-                "domain-types/bi_rule/actions/livestatus_query/invoke", data={"query": livestatus_query}
-            )
-
-            self.logger.debug(f"Service LiveStatus query result: {livestatus_result}")
-
-            if livestatus_result.get("success"):
-                livestatus_data = livestatus_result.get("data", {})
-                if isinstance(livestatus_data, list) and livestatus_data:
-                    service_data = livestatus_data[0]
-                    state = service_data[2] if len(service_data) > 2 else None
-
-                    status_map = {0: "OK", 1: "WARNING", 2: "CRITICAL", 3: "UNKNOWN"}
-                    status = status_map.get(state, f"UNKNOWN({state})")
-
-                    plugin_output = service_data[3] if len(service_data) > 3 else "No output"
-                    last_check = service_data[4] if len(service_data) > 4 else "Never"
-                    last_state_change = service_data[5] if len(service_data) > 5 else "Unknown"
-                    check_type = service_data[6] if len(service_data) > 6 else "Unknown"
-
-                    return [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"📊 **Service Status: {host_name}/{service_description}** (LiveStatus)\n\n"
-                                f"Status: {status}\n"
-                                f"Output: {plugin_output}\n"
-                                f"Last Check: {last_check}\n"
-                                f"Last State Change: {last_state_change}\n"
-                                f"Check Type: {check_type}\n\n"
-                                f"🔍 **Debug Info:**\n"
-                                f"Raw State: {state}\n"
-                                f"LiveStatus Response: {service_data}"
-                            ),
-                        }
-                    ]
-        except Exception as e:
-            self.logger.debug(f"Service LiveStatus query failed: {e}")
-
         # Method 3: Try correct CheckMK Query API format for services (based on cURL example)
         try:
             # Use proper CheckMK API query format with columns and query parameters
@@ -438,69 +394,3 @@ class ServiceHandler(BaseHandler):
                 ),
             }
         ]
-
-    async def _discover_services(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Start service discovery for host with enhanced options"""
-        host_name = arguments.get("host_name")
-        hosts = arguments.get("hosts", [])
-        mode = arguments.get("mode", "new")  # new, remove, fix_all, only_host_labels, only_service_labels
-        do_full_scan = arguments.get("do_full_scan", False)
-        bulk_size = arguments.get("bulk_size", 10)
-        wait_for_completion = arguments.get("wait_for_completion", False)
-
-        # Use either single host or hosts list
-        if host_name:
-            target_hosts = [host_name]
-        elif hosts:
-            target_hosts = hosts
-        else:
-            return self.error_response("Missing parameter", "host_name or hosts list is required")
-
-        # Build discovery data based on mode and options
-        if len(target_hosts) == 1:
-            # Single host discovery
-            data = {"host_name": target_hosts[0], "mode": mode}
-            if do_full_scan:
-                data["do_full_scan"] = do_full_scan
-
-            endpoint = "domain-types/service_discovery/actions/start/invoke"
-        else:
-            # Bulk discovery
-            data = {"hostnames": target_hosts, "mode": mode, "do_full_scan": do_full_scan, "bulk_size": bulk_size}
-            endpoint = "domain-types/service_discovery/actions/bulk-discovery-start/invoke"
-
-        result = self.client.post(endpoint, data=data)
-
-        if result.get("success"):
-            discovery_data = result.get("data", {})
-            job_id = discovery_data.get("job_id") if "job_id" in discovery_data else "N/A"
-
-            response_text = (
-                f"✅ **Service Discovery Started**\n\n"
-                f"Hosts: {', '.join(target_hosts[:3])}"
-                + (f" (+{len(target_hosts) - 3} more)" if len(target_hosts) > 3 else "")
-                + "\n"
-                f"Mode: {mode}\n"
-                f"Full scan: {'Yes' if do_full_scan else 'No'}\n"
-                f"Job ID: {job_id}\n\n"
-                f"🔍 **Discovery Modes:**\n"
-                f"• **new**: Add newly discovered services\n"
-                f"• **remove**: Remove vanished services\n"
-                f"• **fix_all**: Add services, update labels, remove vanished\n"
-                f"• **only_host_labels**: Update only host labels\n"
-                f"• **only_service_labels**: Update only service labels\n\n"
-                f"⚠️ **Next Steps:**\n"
-                f"1️⃣ {'Wait for completion' if wait_for_completion else 'Monitor discovery progress'}\n"
-                f"2️⃣ Review discovered services in CheckMK UI\n"
-                f"3️⃣ Accept/reject services as needed\n"
-                f"4️⃣ Activate changes to apply new services"
-            )
-
-            return [{"type": "text", "text": response_text}]
-        else:
-            hosts_text = ", ".join(target_hosts[:3])
-            if len(target_hosts) > 3:
-                hosts_text += f" (+{len(target_hosts) - 3} more)"
-            return self.error_response(
-                "Discovery failed", f"Could not start service discovery for hosts '{hosts_text}'"
-            )
