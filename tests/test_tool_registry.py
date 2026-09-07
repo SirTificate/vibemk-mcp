@@ -1,38 +1,38 @@
 """
 Structural guards for the MCP tool registry.
 
-The catalogue in mcp/tools.py and the dispatch table in mcp/server.py are
+The catalogue in mcp/tools.py and the dispatch table in mcp/registry.py are
 maintained by hand in two different files. These tests keep them in agreement:
 a tool the client can see must be callable, and a handler that exists must be
 reachable.
 """
 
-import os
-from unittest.mock import patch
+from unittest.mock import MagicMock
 
 import pytest
 
+from mcp.registry import ToolRegistry
 from mcp.tools import get_all_tools
 
 
 @pytest.fixture
-def handler_names():
-    """Tool names wired to a handler in the real (non-test) dispatch table."""
-    env = {
-        "CHECKMK_SERVER_URL": "http://checkmk.invalid",
-        "CHECKMK_SITE": "test",
-        "CHECKMK_USERNAME": "automation",
-        "CHECKMK_PASSWORD": "secret",
-    }
-    with patch.dict(os.environ, env, clear=True), patch(
-        "api.client.CheckMKClient._detect_api_url",
-        return_value="http://checkmk.invalid/test/check_mk/api/1.0",
-    ):
-        from mcp.server import CheckMKMCPServer
+def registry():
+    """A registry over a client that is never actually called."""
+    return ToolRegistry.from_client(MagicMock())
 
-        server = CheckMKMCPServer()
-        server._ensure_initialized()
-        return server.handlers
+
+def test_registry_exposes_every_wired_name(registry):
+    assert "vibemk_get_checkmk_hosts" in registry.tool_names()
+
+
+def test_registry_returns_none_for_an_unknown_tool(registry):
+    assert registry.handler_for("vibemk_not_a_tool") is None
+
+
+def test_registry_returns_a_handler_with_a_handle_method(registry):
+    handler = registry.handler_for("vibemk_get_checkmk_hosts")
+
+    assert hasattr(handler, "handle")
 
 
 def test_no_tool_is_declared_twice():
@@ -42,17 +42,17 @@ def test_no_tool_is_declared_twice():
     assert duplicates == [], f"declared more than once: {duplicates}"
 
 
-def test_every_declared_tool_has_a_handler(handler_names):
+def test_every_declared_tool_has_a_handler(registry):
     declared = {tool["name"] for tool in get_all_tools()}
 
-    unroutable = sorted(name for name in declared if handler_names.get(name) is None)
+    unroutable = sorted(name for name in declared if registry.handler_for(name) is None)
     assert unroutable == [], f"advertised to the client but not callable: {unroutable}"
 
 
-def test_every_handler_is_declared_as_a_tool(handler_names):
+def test_every_handler_is_declared_as_a_tool(registry):
     declared = {tool["name"] for tool in get_all_tools()}
 
-    unreachable = sorted(name for name in handler_names if name not in declared)
+    unreachable = sorted(name for name in registry.tool_names() if name not in declared)
     assert unreachable == [], f"wired to a handler but never advertised: {unreachable}"
 
 
