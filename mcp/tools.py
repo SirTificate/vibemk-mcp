@@ -1115,6 +1115,85 @@ def get_password_tools() -> List[Dict[str, Any]]:
     ]
 
 
+def get_notification_tools() -> List[Dict[str, Any]]:
+    """Notification rule tools
+
+    rule_config mirrors CheckMK's NotificationRuleRequest, which is deeply
+    nested and marks nearly every field required. Fetching an existing rule
+    and adapting it is far more reliable than composing one from scratch.
+    """
+    return [
+        {
+            "name": "vibemk_get_notification_rules",
+            "description": "📢 List notification rules - Show all configured notification rules with their IDs",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "vibemk_get_notification_rule",
+            "description": (
+                "🔍 Show notification rule - Return one rule including its full rule_config. "
+                "Use this first to obtain a template before creating or updating a rule."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "rule_id": {"type": "string", "description": "Rule ID from get_notification_rules"},
+                },
+                "required": ["rule_id"],
+            },
+        },
+        {
+            "name": "vibemk_create_notification_rule",
+            "description": (
+                "➕ Create notification rule - CheckMK requires the complete rule_config structure "
+                "(properties, contact selection, conditions and notification_method), and nearly every "
+                "field is mandatory. Read an existing rule with vibemk_get_notification_rule and adapt "
+                "its rule_config rather than composing one from scratch. Activate changes afterwards."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "rule_config": {
+                        "type": "object",
+                        "description": "Complete rule configuration as returned by vibemk_get_notification_rule",
+                    },
+                },
+                "required": ["rule_config"],
+            },
+        },
+        {
+            "name": "vibemk_update_notification_rule",
+            "description": (
+                "✏️ Update notification rule - Replaces the rule's configuration. Send the complete "
+                "rule_config, not just the fields you want changed; read the current one first. "
+                "Activate changes afterwards."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "rule_id": {"type": "string", "description": "Rule ID from get_notification_rules"},
+                    "rule_config": {
+                        "type": "object",
+                        "description": "Complete replacement configuration",
+                    },
+                },
+                "required": ["rule_id", "rule_config"],
+            },
+        },
+        {
+            "name": "vibemk_delete_notification_rule",
+            "description": "🗑️ Delete notification rule - Remove a notification rule by ID. Activate changes afterwards.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "rule_id": {"type": "string", "description": "Rule ID from get_notification_rules"},
+                },
+                "required": ["rule_id"],
+            },
+        },
+    ]
+
+
 def get_acknowledgement_tools() -> List[Dict[str, Any]]:
     """Problem acknowledgement tools"""
     return [
@@ -1802,6 +1881,7 @@ def get_all_tools() -> List[Dict[str, Any]]:
     tools.extend(get_timeperiod_tools())
     tools.extend(get_password_tools())
     tools.extend(get_acknowledgement_tools())
+    tools.extend(get_notification_tools())
     tools.extend(get_metrics_tools())
     tools.extend(get_debug_tools())
     tools.extend(get_host_group_rules_tools())

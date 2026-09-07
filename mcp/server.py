@@ -36,6 +36,7 @@ from handlers.host_group_rules import HostGroupRulesHandler
 from handlers.hosts import HostHandler
 from handlers.metrics import MetricsHandler
 from handlers.monitoring import MonitoringHandler
+from handlers.notifications import NotificationHandler
 from handlers.passwords import PasswordsHandler
 from handlers.rules import RulesHandler
 from handlers.rulesets import RulesetsHandler
@@ -93,6 +94,7 @@ class CheckMKMCPServer:
         self.host_handler = TestHandler()
         self.service_handler = TestHandler()
         self.monitoring_handler = TestHandler()
+        self.notification_handler = TestHandler()
         self.configuration_handler = TestHandler()
         self.folder_handler = TestHandler()
         self.metrics_handler = TestHandler()
@@ -206,6 +208,7 @@ class CheckMKMCPServer:
         self.host_handler = HostHandler(self.client)
         self.service_handler = ServiceHandler(self.client)
         self.monitoring_handler = MonitoringHandler(self.client)
+        self.notification_handler = NotificationHandler(self.client)
         self.configuration_handler = ConfigurationHandler(self.client)
         self.folder_handler = FolderHandler(self.client)
         self.metrics_handler = MetricsHandler(self.client)
@@ -327,6 +330,12 @@ class CheckMKMCPServer:
             "vibemk_create_password": self.passwords_handler,
             "vibemk_update_password": self.passwords_handler,
             "vibemk_delete_password": self.passwords_handler,
+            # Notification rules
+            "vibemk_get_notification_rules": self.notification_handler,
+            "vibemk_get_notification_rule": self.notification_handler,
+            "vibemk_create_notification_rule": self.notification_handler,
+            "vibemk_update_notification_rule": self.notification_handler,
+            "vibemk_delete_notification_rule": self.notification_handler,
             # Debug tools
             "vibemk_debug_api_endpoints": self.debug_handler,
             "vibemk_debug_permissions": self.debug_handler,
