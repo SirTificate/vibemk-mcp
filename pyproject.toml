@@ -54,8 +54,11 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
     "isort>=5.0.0",
-    "mypy>=1.0.0",
-    "ruff>=0.1.0",
+    # mypy and ruff are pinned to a major version: their findings are a CI gate,
+    # and a gate whose verdict changes when a tool auto-upgrades is not one.
+    # mypy 1.x and 2.x disagree about disallow_any_decorated on @staticmethod.
+    "mypy>=2.3,<3",
+    "ruff>=0.14,<1",
     "coverage>=7.0.0"
 ]
 
