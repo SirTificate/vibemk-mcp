@@ -5,10 +5,11 @@ Owns the mapping from an MCP tool name to the handler that serves it. Knows
 nothing about the JSON-RPC protocol or about transport.
 """
 
-from typing import Any, Dict, FrozenSet, Optional
+from typing import Dict, FrozenSet, Optional
 
 from api import CheckMKClient
 from handlers.acknowledgements import AcknowledgementHandler
+from handlers.base import BaseHandler
 from handlers.configuration import ConfigurationHandler
 from handlers.connection import ConnectionHandler
 from handlers.debug import DebugHandler
@@ -35,11 +36,7 @@ from handlers.users import UserHandler
 class ToolRegistry:
     """Maps MCP tool names to the handler instances that serve them."""
 
-    # Dict[str, Any] rather than Dict[str, BaseHandler]: AcknowledgementHandler and
-    # DiscoveryHandler do not inherit BaseHandler (unlike the other 20 handlers), so
-    # mypy rejects the narrower annotation. Fixing that inheritance belongs to a later
-    # task in this hardening plan, not to this extraction.
-    def __init__(self, handlers: Dict[str, Any]) -> None:
+    def __init__(self, handlers: Dict[str, BaseHandler]) -> None:
         self._handlers = handlers
 
     @classmethod
@@ -212,7 +209,7 @@ class ToolRegistry:
             }
         )
 
-    def handler_for(self, tool_name: str) -> Optional[Any]:
+    def handler_for(self, tool_name: str) -> Optional[BaseHandler]:
         """Return the handler for a tool, or None when it is not registered."""
         return self._handlers.get(tool_name)
 

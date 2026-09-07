@@ -2,10 +2,16 @@
 Rulesets management handlers for CheckMK ruleset discovery and display
 """
 
+import http
 from typing import Any, Dict, List
 
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
+
+# Display limits for formatted ruleset output
+_MAX_HELP_TEXT_PREVIEW = 100
+_MAX_SEARCH_RESULTS_SHOWN = 20
+_MAX_RULES_PER_CATEGORY = 5
 
 
 class RulesetsHandler(BaseHandler):
@@ -16,19 +22,21 @@ class RulesetsHandler(BaseHandler):
 
         try:
             if tool_name == "vibemk_search_rulesets":
-                return await self._search_rulesets(arguments)
+                response = await self._search_rulesets(arguments)
             elif tool_name == "vibemk_show_ruleset":
-                return await self._show_ruleset(arguments)
+                response = await self._show_ruleset(arguments)
             elif tool_name == "vibemk_list_rulesets":
-                return await self._list_rulesets(arguments)
+                response = await self._list_rulesets(arguments)
             else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+                response = self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
+        else:
+            return response
 
     async def _search_rulesets(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search for rulesets with optional filters"""
@@ -39,7 +47,7 @@ class RulesetsHandler(BaseHandler):
         name = arguments.get("name", "")
 
         # Build query parameters based on API documentation
-        params = {}
+        params: Dict[str, Any] = {}
 
         if fulltext:
             params["fulltext"] = fulltext
@@ -52,36 +60,17 @@ class RulesetsHandler(BaseHandler):
         if name:
             params["name"] = name
 
-        self.logger.debug(f"Searching rulesets with params: {params}")
+        self.logger.debug("Searching rulesets with params: %s", params)
 
         try:
             result = self.client.get("domain-types/ruleset/collections/all", params=params)
+        except CheckMKError as e:
+            return self._search_rulesets_error(e)
+        else:
             rulesets = result["data"].get("value", [])
 
             if not rulesets:
-                search_criteria = []
-                if fulltext:
-                    search_criteria.append(f"text '{fulltext}'")
-                if folder:
-                    search_criteria.append(f"folder '{folder}'")
-                if name:
-                    search_criteria.append(f"name '{name}'")
-
-                criteria_text = " and ".join(search_criteria) if search_criteria else "your criteria"
-
-                return [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"🔍 **No Rulesets Found**\n\n"
-                            f"No rulesets match {criteria_text}.\n\n"
-                            f"💡 **Tips:**\n"
-                            f"• Try broader search terms\n"
-                            f"• Check if deprecated rulesets should be included\n"
-                            f"• Verify folder path is correct"
-                        ),
-                    }
-                ]
+                return self._no_rulesets_found_response(fulltext, folder, name)
 
             return [
                 {
@@ -90,25 +79,51 @@ class RulesetsHandler(BaseHandler):
                 }
             ]
 
-        except CheckMKError as e:
-            http_status = getattr(e, "status_code", 0)
-            error_data = getattr(e, "error_data", {})
+    def _no_rulesets_found_response(self, fulltext: str, folder: str, name: str) -> List[Dict[str, Any]]:
+        """Build the response for a ruleset search that matched nothing"""
+        search_criteria = []
+        if fulltext:
+            search_criteria.append(f"text '{fulltext}'")
+        if folder:
+            search_criteria.append(f"folder '{folder}'")
+        if name:
+            search_criteria.append(f"name '{name}'")
 
-            if http_status == 400:
-                return self.error_response(
-                    "Search Parameter Error", f"Invalid search parameters: {error_data.get('detail', str(e))}"
-                )
-            elif http_status == 403:
-                return self.error_response(
-                    "Permission Denied",
-                    "Access denied. You may not have 'wato.rulesets' permission for ruleset management.",
-                )
-            elif http_status == 406:
-                return self.error_response(
-                    "Accept Header Error", "API cannot satisfy the requested content type. Check Accept headers."
-                )
-            else:
-                return self.error_response("Ruleset Search Failed", str(e))
+        criteria_text = " and ".join(search_criteria) if search_criteria else "your criteria"
+
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"🔍 **No Rulesets Found**\n\n"
+                    f"No rulesets match {criteria_text}.\n\n"
+                    f"💡 **Tips:**\n"
+                    f"• Try broader search terms\n"
+                    f"• Check if deprecated rulesets should be included\n"
+                    f"• Verify folder path is correct"
+                ),
+            }
+        ]
+
+    def _search_rulesets_error(self, error: CheckMKError) -> List[Dict[str, Any]]:
+        """Map a CheckMKError from a ruleset search to a response, by HTTP status"""
+        http_status = getattr(error, "status_code", 0)
+        error_data = getattr(error, "error_data", {})
+
+        if http_status == http.HTTPStatus.BAD_REQUEST:
+            return self.error_response(
+                "Search Parameter Error", f"Invalid search parameters: {error_data.get('detail', str(error))}"
+            )
+        if http_status == http.HTTPStatus.FORBIDDEN:
+            return self.error_response(
+                "Permission Denied",
+                "Access denied. You may not have 'wato.rulesets' permission for ruleset management.",
+            )
+        if http_status == http.HTTPStatus.NOT_ACCEPTABLE:
+            return self.error_response(
+                "Accept Header Error", "API cannot satisfy the requested content type. Check Accept headers."
+            )
+        return self.error_response("Ruleset Search Failed", str(error))
 
     async def _show_ruleset(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Show detailed information about a specific ruleset"""
@@ -117,12 +132,14 @@ class RulesetsHandler(BaseHandler):
         if not ruleset_name:
             return self.error_response("Missing parameter", "ruleset_name is required")
 
-        self.logger.debug(f"Showing ruleset: {ruleset_name}")
+        self.logger.debug("Showing ruleset: %s", ruleset_name)
 
         try:
             result = self.client.get(f"objects/ruleset/{ruleset_name}")
+        except CheckMKError as e:
+            return self._show_ruleset_error(e, ruleset_name)
+        else:
             ruleset_data = result["data"]
-
             return [
                 {
                     "type": "text",
@@ -130,25 +147,24 @@ class RulesetsHandler(BaseHandler):
                 }
             ]
 
-        except CheckMKError as e:
-            http_status = getattr(e, "status_code", 0)
-            error_data = getattr(e, "error_data", {})
+    def _show_ruleset_error(self, error: CheckMKError, ruleset_name: str) -> List[Dict[str, Any]]:
+        """Map a CheckMKError from showing a ruleset to a response, by HTTP status"""
+        http_status = getattr(error, "status_code", 0)
 
-            if http_status == 403:
-                return self.error_response(
-                    "Permission Denied",
-                    "Access denied. You may not have 'wato.rulesets' permission for ruleset management.",
-                )
-            elif http_status == 404:
-                return self.error_response(
-                    "Ruleset Not Found", f"Ruleset '{ruleset_name}' not found. Check the ruleset name and try again."
-                )
-            elif http_status == 406:
-                return self.error_response(
-                    "Accept Header Error", "API cannot satisfy the requested content type. Check Accept headers."
-                )
-            else:
-                return self.error_response("Failed to retrieve ruleset", str(e))
+        if http_status == http.HTTPStatus.FORBIDDEN:
+            return self.error_response(
+                "Permission Denied",
+                "Access denied. You may not have 'wato.rulesets' permission for ruleset management.",
+            )
+        if http_status == http.HTTPStatus.NOT_FOUND:
+            return self.error_response(
+                "Ruleset Not Found", f"Ruleset '{ruleset_name}' not found. Check the ruleset name and try again."
+            )
+        if http_status == http.HTTPStatus.NOT_ACCEPTABLE:
+            return self.error_response(
+                "Accept Header Error", "API cannot satisfy the requested content type. Check Accept headers."
+            )
+        return self.error_response("Failed to retrieve ruleset", str(error))
 
     async def _list_rulesets(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """List all available rulesets with basic information"""
@@ -159,6 +175,14 @@ class RulesetsHandler(BaseHandler):
 
         try:
             result = self.client.get("domain-types/ruleset/collections/all", params=params)
+        except CheckMKError as e:
+            http_status = getattr(e, "status_code", 0)
+            if http_status == http.HTTPStatus.FORBIDDEN:
+                return self.error_response(
+                    "Permission Denied", "Access denied. You may not have 'wato.rulesets' permission."
+                )
+            return self.error_response("Failed to list rulesets", str(e))
+        else:
             rulesets = result["data"].get("value", [])
 
             # Limit results for performance
@@ -175,19 +199,9 @@ class RulesetsHandler(BaseHandler):
                 }
             ]
 
-        except CheckMKError as e:
-            http_status = getattr(e, "status_code", 0)
-
-            if http_status == 403:
-                return self.error_response(
-                    "Permission Denied", "Access denied. You may not have 'wato.rulesets' permission."
-                )
-            else:
-                return self.error_response("Failed to list rulesets", str(e))
-
-    def _format_rulesets_search_response(self, rulesets: List[Dict], search_params: Dict) -> str:
+    def _format_rulesets_search_response(self, rulesets: List[Dict[str, Any]], search_params: Dict[str, Any]) -> str:
         """Format search results for display"""
-        response = f"🔍 **Ruleset Search Results**\n\n"
+        response = "🔍 **Ruleset Search Results**\n\n"
 
         # Show search criteria
         if search_params:
@@ -198,7 +212,7 @@ class RulesetsHandler(BaseHandler):
 
         response += f"**Found {len(rulesets)} rulesets**\n\n"
 
-        for i, ruleset in enumerate(rulesets[:20], 1):  # Show first 20 results
+        for i, ruleset in enumerate(rulesets[:_MAX_SEARCH_RESULTS_SHOWN], 1):
             extensions = ruleset.get("extensions", {})
             ruleset_id = ruleset.get("id", "Unknown")
             title = extensions.get("title", "No title")
@@ -207,8 +221,8 @@ class RulesetsHandler(BaseHandler):
             number_of_rules = extensions.get("number_of_rules", 0)
 
             # Truncate help text
-            if help_text and len(help_text) > 100:
-                help_text = help_text[:100] + "..."
+            if help_text and len(help_text) > _MAX_HELP_TEXT_PREVIEW:
+                help_text = help_text[:_MAX_HELP_TEXT_PREVIEW] + "..."
 
             status_icon = "⚠️" if deprecated else "✅"
 
@@ -219,18 +233,18 @@ class RulesetsHandler(BaseHandler):
             if help_text:
                 response += f"   💡 {help_text}\n"
             if deprecated:
-                response += f"   ⚠️ Deprecated ruleset\n"
+                response += "   ⚠️ Deprecated ruleset\n"
 
             response += "\n"
 
-        if len(rulesets) > 20:
-            response += f"... and {len(rulesets) - 20} more rulesets\n\n"
+        if len(rulesets) > _MAX_SEARCH_RESULTS_SHOWN:
+            response += f"... and {len(rulesets) - _MAX_SEARCH_RESULTS_SHOWN} more rulesets\n\n"
 
         response += "💡 **Use `vibemk_show_ruleset` with ruleset name for detailed information**"
 
         return response
 
-    def _format_ruleset_details(self, ruleset_name: str, ruleset_data: Dict) -> str:
+    def _format_ruleset_details(self, ruleset_name: str, ruleset_data: Dict[str, Any]) -> str:
         """Format detailed ruleset information"""
         extensions = ruleset_data.get("extensions", {})
 
@@ -256,18 +270,20 @@ class RulesetsHandler(BaseHandler):
 
         # Show available operations
         response += "**Available Operations:**\n"
-        response += f"• Use `vibemk_get_ruleset` to see actual rules in this ruleset\n"
-        response += f"• Use `vibemk_create_rule` to add new rules to this ruleset\n"
-        response += f"• Use `vibemk_search_rulesets` to find related rulesets\n"
+        response += "• Use `vibemk_get_ruleset` to see actual rules in this ruleset\n"
+        response += "• Use `vibemk_create_rule` to add new rules to this ruleset\n"
+        response += "• Use `vibemk_search_rulesets` to find related rulesets\n"
 
         if deprecated:
             response += "\n⚠️ **Note:** This is a deprecated ruleset. Consider using newer alternatives."
 
         return response
 
-    def _format_rulesets_list(self, rulesets: List[Dict], limit: int, truncated: bool, show_deprecated: bool) -> str:
+    def _format_rulesets_list(
+        self, rulesets: List[Dict[str, Any]], limit: int, truncated: bool, show_deprecated: bool
+    ) -> str:
         """Format rulesets list for display"""
-        response = f"📋 **Available Rulesets**\n\n"
+        response = "📋 **Available Rulesets**\n\n"
 
         if show_deprecated:
             response += "**Including deprecated rulesets**\n\n"
@@ -275,8 +291,7 @@ class RulesetsHandler(BaseHandler):
         response += f"**Showing {len(rulesets)} rulesets" + (f" (limited to {limit})" if truncated else "") + "**\n\n"
 
         # Group by category if possible
-        categorized = {}
-        uncategorized = []
+        categorized: Dict[str, List[Dict[str, Any]]] = {}
 
         for ruleset in rulesets:
             extensions = ruleset.get("extensions", {})
@@ -285,10 +300,7 @@ class RulesetsHandler(BaseHandler):
             deprecated = extensions.get("deprecated", False)
 
             # Try to categorize by ruleset prefix
-            if "_" in ruleset_id:
-                category = ruleset_id.split("_")[0]
-            else:
-                category = "general"
+            category = ruleset_id.split("_")[0] if "_" in ruleset_id else "general"
 
             if category not in categorized:
                 categorized[category] = []
@@ -299,11 +311,11 @@ class RulesetsHandler(BaseHandler):
         for category, rules in sorted(categorized.items()):
             if len(rules) > 1:  # Only show categories with multiple rules
                 response += f"**{category.upper()}:**\n"
-                for rule in rules[:5]:  # Limit per category
+                for rule in rules[:_MAX_RULES_PER_CATEGORY]:
                     status_icon = "⚠️" if rule["deprecated"] else "✅"
                     response += f"  {status_icon} `{rule['id']}` - {rule['title']}\n"
-                if len(rules) > 5:
-                    response += f"  ... and {len(rules) - 5} more {category} rulesets\n"
+                if len(rules) > _MAX_RULES_PER_CATEGORY:
+                    response += f"  ... and {len(rules) - _MAX_RULES_PER_CATEGORY} more {category} rulesets\n"
                 response += "\n"
 
         if truncated:

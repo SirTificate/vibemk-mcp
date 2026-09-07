@@ -5,17 +5,14 @@ Handles service discovery operations for hosts
 
 from typing import Any, Dict, List
 
-from api import CheckMKClient
+from handlers.base import BaseHandler
 from utils import get_logger
 
 logger = get_logger(__name__)
 
 
-class DiscoveryHandler:
+class DiscoveryHandler(BaseHandler):
     """Handler for CheckMK host discovery operations"""
-
-    def __init__(self, client: CheckMKClient):
-        self.client = client
 
     async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str, str]]:
         """Route discovery tool calls to appropriate methods"""
