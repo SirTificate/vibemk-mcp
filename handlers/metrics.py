@@ -36,27 +36,28 @@ class MetricsHandler(BaseHandler):
             return self.error_response("Unexpected Error", str(e))
 
     def _parse_time_range(self, time_range: str) -> Dict[str, str]:
-        """Parse time range string into start/end datetime strings for CheckMK API"""
-        import datetime
+        """Build the UTC window CheckMK expects for a named range.
 
-        now = datetime.datetime.now()
+        A timestamp without an offset is read as site local time, so a server
+        whose host runs in a different zone than the site silently asks for the
+        wrong window. UTC with a Z suffix — the form CheckMK's own
+        reorganize_time_range docstring uses — removes that coupling.
+        """
+        from datetime import datetime, timedelta, timezone
 
-        if time_range == "1h":
-            start_time = now - datetime.timedelta(hours=1)
-        elif time_range == "4h":
-            start_time = now - datetime.timedelta(hours=4)
-        elif time_range == "24h":
-            start_time = now - datetime.timedelta(days=1)
-        elif time_range == "7d":
-            start_time = now - datetime.timedelta(days=7)
-        elif time_range == "30d":
-            start_time = now - datetime.timedelta(days=30)
-        else:
-            # Default to 1 hour
-            start_time = now - datetime.timedelta(hours=1)
-
-        # Format as strings without microseconds (CheckMK requirement)
-        return {"start": start_time.strftime("%Y-%m-%d %H:%M:%S"), "end": now.strftime("%Y-%m-%d %H:%M:%S")}
+        spans = {
+            "1h": timedelta(hours=1),
+            "4h": timedelta(hours=4),
+            "24h": timedelta(days=1),
+            "7d": timedelta(days=7),
+            "30d": timedelta(days=30),
+        }
+        now = datetime.now(timezone.utc)
+        start = now - spans.get(time_range, timedelta(hours=1))
+        return {
+            "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
 
     async def _get_host_metrics(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get host metrics using CheckMK REST API metrics endpoint"""
