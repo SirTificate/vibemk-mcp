@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Service discovery called `domain-types/service_discovery/actions/start`, which CheckMK
+  registers under `service_discovery_run` — every `vibemk_discover_services` call was a 404,
+  and its dispatch passed a string to a method expecting a dict, raising AttributeError
+  before that. The tool duplicated two working ones and was removed
+- Bulk discovery status queried `objects/discovery_run/{job_id}`, which is not registered;
+  it now reads `objects/background_job/{job_id}`, the endpoint bulk discovery redirects to
+- Removed a service-status fallback posting to `domain-types/bi_rule/actions/livestatus_query`
+  — no such endpoint exists in any CheckMK release
+- Discovery modes `tabula_rasa` and `only_service_labels` were rejected client-side although
+  CheckMK 2.4 accepts them
+- Eleven call sites sent `If-Match: "*"`, which CheckMK accepts but which disables the
+  concurrency check entirely; they now send the object's real ETag
+- `PUT`/move on folders, move on hosts and rules, and `DELETE` on time periods sent no
+  `If-Match` at all although CheckMK 2.4 requires one
+- Change activation no longer hand-rolls a urllib request to work around the client's
+  missing header support, and takes its ETag from the pending-changes response
+
+### Added
+- Notification rule management: list, show, create, update and delete
+  (`vibemk_*_notification_rule`)
+
+### Fixed
 - Downtime scheduling no longer discards an explicit date: any expression containing a
   time of day was reduced to that time *today*, so a downtime requested for
   `2026-12-24T22:00:00Z` was scheduled for the current day
