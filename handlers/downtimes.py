@@ -1032,12 +1032,11 @@ class DowntimeHandler(BaseHandler):
                     except (ValueError, TypeError):
                         return False
 
+            # Check if current time is within the downtime window
+            return bool(start_time <= current_timestamp <= end_time)
         except Exception as e:
             self.logger.warning("Error checking downtime active status: %s", e)
             return False
-        else:
-            # Check if current time is within the downtime window
-            return bool(start_time <= current_timestamp <= end_time)
 
     def _format_downtime_status_summary(self, status: Dict[str, Any]) -> str:
         """Host- and service-level downtime status lines."""
@@ -1162,12 +1161,12 @@ class DowntimeHandler(BaseHandler):
 
             host_downtimes = host_result["data"].get("value", [])
             current_time = datetime.now(timezone.utc).timestamp()
+
+            # Check if any host downtime is currently active
+            return any(self._is_downtime_active(downtime, current_time) for downtime in host_downtimes)
         except Exception:
             self.logger.exception("Error checking host-level downtime for %s", host_name)
             return False
-        else:
-            # Check if any host downtime is currently active
-            return any(self._is_downtime_active(downtime, current_time) for downtime in host_downtimes)
 
     async def _get_current_downtimes(
         self, host_name: str, service_descriptions: List[str], comment: Optional[str] = None
