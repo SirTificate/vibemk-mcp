@@ -11,6 +11,22 @@ from typing import Any, Dict, List, Optional, Tuple
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
 
+# Recurring modes CheckMK accepts, from
+# cmk/gui/openapi/endpoints/downtime/request_schemas.py at v2.4.0p2. CheckMK's
+# own docstring notes these take effect only on the Enterprise editions; a Raw
+# site accepts the request and creates a one-off downtime.
+RECUR_MODES = (
+    "fixed",
+    "hour",
+    "day",
+    "week",
+    "second_week",
+    "fourth_week",
+    "weekday_start",
+    "weekday_end",
+    "day_of_month",
+)
+
 
 class DowntimeHandler(BaseHandler):
     """Handle downtime operations for hosts and services"""
@@ -77,6 +93,14 @@ class DowntimeHandler(BaseHandler):
             return [{"type": "text", "text": response}]
 
         # Build downtime request data with correct CheckMK format
+        recur = arguments.get("recur")
+        if recur is not None and recur not in RECUR_MODES:
+            return self.error_response(
+                f"Unsupported recurring mode '{recur}'",
+                f"CheckMK accepts: {', '.join(RECUR_MODES)}. "
+                "Note that a monthly downtime is 'day_of_month', not 'month'.",
+            )
+
         downtime_data = {
             "downtime_type": "host",
             "host_name": host_name,
@@ -84,6 +108,9 @@ class DowntimeHandler(BaseHandler):
             "end_time": downtime_times["end_time"],
             "comment": comment,
         }
+
+        if recur is not None:
+            downtime_data["recur"] = recur
 
         self.logger.debug("Scheduling host downtime with data: %s", downtime_data)
 
@@ -213,6 +240,14 @@ class DowntimeHandler(BaseHandler):
             services_to_schedule = service_descriptions
 
         # Build downtime request data with correct CheckMK format
+        recur = arguments.get("recur")
+        if recur is not None and recur not in RECUR_MODES:
+            return self.error_response(
+                f"Unsupported recurring mode '{recur}'",
+                f"CheckMK accepts: {', '.join(RECUR_MODES)}. "
+                "Note that a monthly downtime is 'day_of_month', not 'month'.",
+            )
+
         downtime_data = {
             "downtime_type": "service",
             "host_name": host_name,
@@ -221,6 +256,9 @@ class DowntimeHandler(BaseHandler):
             "end_time": downtime_times["end_time"],
             "comment": comment,
         }
+
+        if recur is not None:
+            downtime_data["recur"] = recur
 
         self.logger.debug("Scheduling service downtime with data: %s", downtime_data)
 

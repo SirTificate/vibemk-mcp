@@ -5,6 +5,7 @@ These cover the contract between user-supplied time expressions and the
 UTC timestamps that get sent to the CheckMK REST API.
 """
 
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -12,6 +13,7 @@ from typing import Any, Dict, Optional
 import pytest
 
 from handlers.downtimes import DowntimeHandler
+from mcp.tools import get_all_tools
 
 # A fixed non-UTC zone with a stable offset makes the UTC conversion observable.
 BERLIN = "Europe/Berlin"
@@ -247,3 +249,96 @@ class TestGetHostDowntimeStatusSkipsMalformedRecords:
         assert status["has_host_downtime"] is True
         assert status["host_downtime_count"] == 1
         assert status["active_host_downtimes"] == [good_downtime]
+
+
+class TestRecurringDowntimes:
+    """`recur` is advertised by both scheduling tools and must reach CheckMK.
+
+    Valid values come from cmk/gui/openapi/endpoints/downtime/request_schemas.py
+    at v2.4.0p2. CheckMK's own docstring notes recurring downtimes work only on
+    the Enterprise editions; on Raw the request is accepted and the downtime is
+    created as a one-off.
+    """
+
+    @pytest.fixture
+    def handler(self, mock_checkmk_client):
+        return DowntimeHandler(mock_checkmk_client)
+
+    @pytest.fixture(autouse=True)
+    def no_verification_backoff(self, monkeypatch):
+        """Skip the post-creation verification sleeps.
+
+        After scheduling, the handler polls CheckMK five times with a five
+        second pause to confirm the downtime appeared. These tests assert on
+        the request that goes out, not on that polling, and the real sleeps
+        would add a minute to the suite.
+        """
+
+        async def instant(_seconds: float) -> None:
+            return None
+
+        monkeypatch.setattr(asyncio, "sleep", instant)
+
+    @pytest.mark.asyncio
+    async def test_host_downtime_forwards_recur(self, handler):
+        handler.client.post.return_value = {"success": True, "status": 204, "headers": {}, "data": {}}
+
+        await handler.handle(
+            "vibemk_schedule_host_downtime",
+            {"host_name": "example.com", "comment": "patching", "recur": "week"},
+        )
+
+        assert handler.client.post.call_args.kwargs["data"]["recur"] == "week"
+
+    @pytest.mark.asyncio
+    async def test_service_downtime_forwards_recur(self, handler):
+        handler.client.post.return_value = {"success": True, "status": 204, "headers": {}, "data": {}}
+
+        await handler.handle(
+            "vibemk_schedule_service_downtime",
+            {
+                "host_name": "example.com",
+                "service_descriptions": ["CPU utilization"],
+                "comment": "patching",
+                "recur": "day",
+            },
+        )
+
+        assert handler.client.post.call_args.kwargs["data"]["recur"] == "day"
+
+    @pytest.mark.asyncio
+    async def test_omitting_recur_sends_no_recur_key(self, handler):
+        # CheckMK defaults the field to "fixed"; sending nothing keeps the
+        # payload honest about what the caller actually asked for.
+        handler.client.post.return_value = {"success": True, "status": 204, "headers": {}, "data": {}}
+
+        await handler.handle("vibemk_schedule_host_downtime", {"host_name": "example.com"})
+
+        assert "recur" not in handler.client.post.call_args.kwargs["data"]
+
+    @pytest.mark.asyncio
+    async def test_a_value_checkmk_does_not_accept_is_rejected_locally(self, handler):
+        # "month" was advertised for a year and is not a CheckMK value at all;
+        # forwarding it would earn a 400. Catch it here with a usable message.
+        result = await handler.handle("vibemk_schedule_host_downtime", {"host_name": "example.com", "recur": "month"})
+
+        assert not handler.client.post.called
+        assert "month" in result[0]["text"]
+        assert "day_of_month" in result[0]["text"]
+
+    def test_advertised_values_match_what_checkmk_accepts(self):
+        checkmk = {
+            "fixed",
+            "hour",
+            "day",
+            "week",
+            "second_week",
+            "fourth_week",
+            "weekday_start",
+            "weekday_end",
+            "day_of_month",
+        }
+        for name in ("vibemk_schedule_host_downtime", "vibemk_schedule_service_downtime"):
+            tool = next(t for t in get_all_tools() if t["name"] == name)
+            advertised = set(tool["inputSchema"]["properties"]["recur"]["enum"])
+            assert advertised <= checkmk, f"{name} advertises {advertised - checkmk}"
