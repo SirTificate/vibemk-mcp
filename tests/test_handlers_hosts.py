@@ -45,8 +45,12 @@ class TestHostHandler:
         # Verify
         assert len(result) == 1
         assert "test-server-01" in result[0]["text"]
-        # The current implementation uses host_config endpoint and doesn't support filters
-        host_handler.client.get.assert_called_with("domain-types/host_config/collections/all", params={})
+        # Hosts come from the Monitoring collection: the Setup/WATO host_config
+        # endpoint returns an empty list for non-administrative accounts. State is
+        # only included when requested explicitly, hence the columns parameter.
+        host_handler.client.get.assert_called_with(
+            "domain-types/host/collections/all", params={"columns": ["name", "state"]}
+        )
 
     @pytest.mark.asyncio
     async def test_get_host_status_success(self, host_handler, mock_checkmk_responses):
