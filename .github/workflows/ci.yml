@@ -67,8 +67,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # Install project in editable mode with dev dependencies
-        pip install -e ".[dev]"
+        # Only the test extra: the static-analysis tools are pinned to versions
+        # that do not support every interpreter in this matrix, and this job
+        # does not need them — the lint job owns those checks.
+        pip install -e ".[test]"
         
     - name: Test with pytest
       run: |
