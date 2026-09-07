@@ -7,6 +7,8 @@ from typing import Any, Dict, List
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
 
+TAG_PREVIEW_LIMIT = 3
+
 
 class TagsHandler(BaseHandler):
     """Handle tag group management operations"""
@@ -17,22 +19,21 @@ class TagsHandler(BaseHandler):
         try:
             if tool_name == "vibemk_get_host_tags":
                 return await self._get_host_tags(arguments)
-            elif tool_name == "vibemk_create_host_tag":
+            if tool_name == "vibemk_create_host_tag":
                 return await self._create_host_tag(arguments)
-            elif tool_name == "vibemk_update_host_tag":
+            if tool_name == "vibemk_update_host_tag":
                 return await self._update_host_tag(arguments)
-            elif tool_name == "vibemk_delete_host_tag":
+            if tool_name == "vibemk_delete_host_tag":
                 return await self._delete_host_tag(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
-    async def _get_host_tags(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_host_tags(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of host tag groups"""
         result = self.client.get("domain-types/host_tag_group/collections/all")
 
@@ -50,10 +51,10 @@ class TagsHandler(BaseHandler):
             title = extensions.get("title", group_id)
             tags = extensions.get("tags", [])
 
-            tag_names = [tag.get("title", tag.get("id", "Unknown")) for tag in tags[:3]]
+            tag_names = [tag.get("title", tag.get("id", "Unknown")) for tag in tags[:TAG_PREVIEW_LIMIT]]
             tag_preview = ", ".join(tag_names)
-            if len(tags) > 3:
-                tag_preview += f", ... (+{len(tags) - 3} more)"
+            if len(tags) > TAG_PREVIEW_LIMIT:
+                tag_preview += f", ... (+{len(tags) - TAG_PREVIEW_LIMIT} more)"
 
             tag_list.append(f"🏷️ **{group_id}** - {title}\n   Tags: {tag_preview}\n   Total: {len(tags)} tags")
 
@@ -103,8 +104,7 @@ class TagsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Host tag group creation failed", f"Could not create tag group '{tag_id}'")
+        return self.error_response("Host tag group creation failed", f"Could not create tag group '{tag_id}'")
 
     async def _update_host_tag(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update an existing host tag group"""
@@ -158,8 +158,7 @@ class TagsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Host tag group update failed", f"Could not update tag group '{tag_id}'")
+        return self.error_response("Host tag group update failed", f"Could not update tag group '{tag_id}'")
 
     async def _delete_host_tag(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a host tag group"""
@@ -195,5 +194,4 @@ class TagsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Host tag group deletion failed", f"Could not delete tag group '{tag_id}'")
+        return self.error_response("Host tag group deletion failed", f"Could not delete tag group '{tag_id}'")

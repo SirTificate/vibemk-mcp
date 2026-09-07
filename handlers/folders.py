@@ -17,23 +17,22 @@ class FolderHandler(BaseHandler):
         try:
             if tool_name == "vibemk_get_folders":
                 return await self._get_folders(arguments)
-            elif tool_name == "vibemk_create_folder":
+            if tool_name == "vibemk_create_folder":
                 return await self._create_folder(arguments)
-            elif tool_name == "vibemk_delete_folder":
+            if tool_name == "vibemk_delete_folder":
                 return await self._delete_folder(arguments)
-            elif tool_name == "vibemk_update_folder":
+            if tool_name == "vibemk_update_folder":
                 return await self._update_folder(arguments)
-            elif tool_name == "vibemk_move_folder":
+            if tool_name == "vibemk_move_folder":
                 return await self._move_folder(arguments)
-            elif tool_name == "vibemk_get_folder_hosts":
+            if tool_name == "vibemk_get_folder_hosts":
                 return await self._get_folder_hosts(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
     async def _get_folders(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -104,8 +103,7 @@ class FolderHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Folder creation failed", f"Could not create folder '{folder}'")
+        return self.error_response("Folder creation failed", f"Could not create folder '{folder}'")
 
     async def _delete_folder(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a folder"""
@@ -140,8 +138,7 @@ class FolderHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Folder deletion failed", f"Could not delete folder '{folder}'")
+        return self.error_response("Folder deletion failed", f"Could not delete folder '{folder}'")
 
     async def _update_folder(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update folder properties"""
@@ -171,8 +168,7 @@ class FolderHandler(BaseHandler):
             return self.success_response(
                 "Folder Updated Successfully", {"folder": folder, "message": "Remember to activate changes!"}
             )
-        else:
-            return self.error_response("Folder update failed", f"Could not update folder '{folder}'")
+        return self.error_response("Folder update failed", f"Could not update folder '{folder}'")
 
     async def _move_folder(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Move folder to different parent"""
@@ -199,8 +195,7 @@ class FolderHandler(BaseHandler):
                 "Folder Moved Successfully",
                 {"folder": folder, "destination": destination, "message": "Remember to activate changes!"},
             )
-        else:
-            return self.error_response("Folder move failed", f"Could not move folder '{folder}'")
+        return self.error_response("Folder move failed", f"Could not move folder '{folder}'")
 
     async def _get_folder_hosts(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get all hosts in a specific folder"""

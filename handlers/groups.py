@@ -18,32 +18,31 @@ class GroupsHandler(BaseHandler):
             # Host groups
             if tool_name == "vibemk_get_host_groups":
                 return await self._get_host_groups(arguments)
-            elif tool_name == "vibemk_create_host_group":
+            if tool_name == "vibemk_create_host_group":
                 return await self._create_host_group(arguments)
-            elif tool_name == "vibemk_update_host_group":
+            if tool_name == "vibemk_update_host_group":
                 return await self._update_host_group(arguments)
-            elif tool_name == "vibemk_delete_host_group":
+            if tool_name == "vibemk_delete_host_group":
                 return await self._delete_host_group(arguments)
             # Service groups
-            elif tool_name == "vibemk_get_service_groups":
+            if tool_name == "vibemk_get_service_groups":
                 return await self._get_service_groups(arguments)
-            elif tool_name == "vibemk_create_service_group":
+            if tool_name == "vibemk_create_service_group":
                 return await self._create_service_group(arguments)
-            elif tool_name == "vibemk_update_service_group":
+            if tool_name == "vibemk_update_service_group":
                 return await self._update_service_group(arguments)
-            elif tool_name == "vibemk_delete_service_group":
+            if tool_name == "vibemk_delete_service_group":
                 return await self._delete_service_group(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
     # Host Groups Management
-    async def _get_host_groups(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_host_groups(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of CheckMK host groups"""
         result = self.client.get("domain-types/host_group_config/collections/all")
 
@@ -89,8 +88,7 @@ class GroupsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Host group creation failed", f"Could not create host group '{name}'")
+        return self.error_response("Host group creation failed", f"Could not create host group '{name}'")
 
     async def _update_host_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update an existing host group"""
@@ -128,8 +126,7 @@ class GroupsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Host group update failed", f"Could not update host group '{name}'")
+        return self.error_response("Host group update failed", f"Could not update host group '{name}'")
 
     async def _delete_host_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a host group"""
@@ -159,11 +156,10 @@ class GroupsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Host group deletion failed", f"Could not delete host group '{name}'")
+        return self.error_response("Host group deletion failed", f"Could not delete host group '{name}'")
 
     # Service Groups Management
-    async def _get_service_groups(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_service_groups(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of CheckMK service groups"""
         result = self.client.get("domain-types/service_group_config/collections/all")
 
@@ -209,8 +205,7 @@ class GroupsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Service group creation failed", f"Could not create service group '{name}'")
+        return self.error_response("Service group creation failed", f"Could not create service group '{name}'")
 
     async def _update_service_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update an existing service group"""
@@ -248,8 +243,7 @@ class GroupsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Service group update failed", f"Could not update service group '{name}'")
+        return self.error_response("Service group update failed", f"Could not update service group '{name}'")
 
     async def _delete_service_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a service group"""
@@ -279,5 +273,4 @@ class GroupsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Service group deletion failed", f"Could not delete service group '{name}'")
+        return self.error_response("Service group deletion failed", f"Could not delete service group '{name}'")

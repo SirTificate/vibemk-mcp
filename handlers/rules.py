@@ -7,6 +7,9 @@ from typing import Any, Dict, List
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
 
+RULESET_DISPLAY_LIMIT = 20
+RULE_DISPLAY_LIMIT = 10
+
 
 class RulesHandler(BaseHandler):
     """Handle rule management operations"""
@@ -17,23 +20,22 @@ class RulesHandler(BaseHandler):
         try:
             if tool_name == "vibemk_get_rulesets":
                 return await self._get_rulesets(arguments)
-            elif tool_name == "vibemk_get_ruleset":
+            if tool_name == "vibemk_get_ruleset":
                 return await self._get_ruleset(arguments)
-            elif tool_name == "vibemk_create_rule":
+            if tool_name == "vibemk_create_rule":
                 return await self._create_rule(arguments)
-            elif tool_name == "vibemk_update_rule":
+            if tool_name == "vibemk_update_rule":
                 return await self._update_rule(arguments)
-            elif tool_name == "vibemk_delete_rule":
+            if tool_name == "vibemk_delete_rule":
                 return await self._delete_rule(arguments)
-            elif tool_name == "vibemk_move_rule":
+            if tool_name == "vibemk_move_rule":
                 return await self._move_rule(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
     async def _get_rulesets(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -59,7 +61,7 @@ class RulesHandler(BaseHandler):
             ]
 
         ruleset_list = []
-        for ruleset in rulesets[:20]:  # Limit to first 20
+        for ruleset in rulesets[:RULESET_DISPLAY_LIMIT]:  # Limit to first 20
             ruleset_name = ruleset.get("id", "Unknown")
             extensions = ruleset.get("extensions", {})
             title = extensions.get("title", ruleset_name)
@@ -68,8 +70,8 @@ class RulesHandler(BaseHandler):
             ruleset_list.append(f"📋 **{ruleset_name}**\n   Title: {title}\n   Help: {help_text[:100]}...")
 
         response_text = f"📋 **Available Rulesets** ({len(rulesets)} total):\n\n" + "\n\n".join(ruleset_list)
-        if len(rulesets) > 20:
-            response_text += f"\n\n... and {len(rulesets) - 20} more rulesets"
+        if len(rulesets) > RULESET_DISPLAY_LIMIT:
+            response_text += f"\n\n... and {len(rulesets) - RULESET_DISPLAY_LIMIT} more rulesets"
 
         return [{"type": "text", "text": response_text}]
 
@@ -90,7 +92,7 @@ class RulesHandler(BaseHandler):
         rules = result["data"].get("value", [])
 
         rule_list = []
-        for i, rule in enumerate(rules[:10]):  # Show first 10 rules
+        for i, rule in enumerate(rules[:RULE_DISPLAY_LIMIT]):  # Show first 10 rules
             rule_id = rule.get("id", f"Rule {i+1}")
             extensions = rule.get("extensions", {})
             properties = extensions.get("properties", {})
@@ -134,12 +136,16 @@ class RulesHandler(BaseHandler):
                     f"📋 **Ruleset: {ruleset_name}**\n\n"
                     f"Rules ({len(rules)} total):\n\n"
                     + ("\n\n".join(rule_list) if rule_list else "No rules configured in this ruleset")
-                    + (f"\n\n... and {len(rules) - 10} more rules" if len(rules) > 10 else "")
+                    + (
+                        f"\n\n... and {len(rules) - RULE_DISPLAY_LIMIT} more rules"
+                        if len(rules) > RULE_DISPLAY_LIMIT
+                        else ""
+                    )
                 ),
             }
         ]
 
-    async def _validate_ruleset_value(self, ruleset_name: str, value: Any) -> str:
+    async def _validate_ruleset_value(self, _ruleset_name: str, value: Any) -> str:
         """Validate and format value for specific ruleset"""
         # This method can be extended to handle specific ruleset requirements
         # For now, implement basic Python literal formatting
@@ -147,18 +153,16 @@ class RulesHandler(BaseHandler):
         if isinstance(value, dict):
             # For rulesets like host_label_rules: {'key': 'value'}
             return str(value).replace('"', "'")
-        elif isinstance(value, list):
+        if isinstance(value, list):
             if len(value) == 1:
                 # Single item lists often need to be strings
                 return f"'{value[0]}'"
-            else:
-                # Multi-item lists stay as Python list literals
-                return str(value).replace('"', "'")
-        elif isinstance(value, str):
+            # Multi-item lists stay as Python list literals
+            return str(value).replace('"', "'")
+        if isinstance(value, str):
             # String values need to be Python string literals
             return f"'{value}'"
-        else:
-            return str(value)
+        return str(value)
 
     async def _create_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create a new monitoring rule"""
@@ -167,7 +171,6 @@ class RulesHandler(BaseHandler):
         conditions = arguments.get("conditions", {})
         comment = arguments.get("comment", "")
         folder = arguments.get("folder", "/")
-        position = arguments.get("position", "top")
 
         if not ruleset_name:
             return self.error_response("Missing parameter", "ruleset_name is required")
@@ -214,8 +217,7 @@ class RulesHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Rule creation failed", f"Could not create rule in ruleset '{ruleset_name}'")
+        return self.error_response("Rule creation failed", f"Could not create rule in ruleset '{ruleset_name}'")
 
     async def _update_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update an existing rule"""
@@ -261,8 +263,7 @@ class RulesHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Rule update failed", f"Could not update rule '{rule_id}'")
+        return self.error_response("Rule update failed", f"Could not update rule '{rule_id}'")
 
     async def _delete_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a rule"""
@@ -287,8 +288,7 @@ class RulesHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Rule deletion failed", f"Could not delete rule '{rule_id}'")
+        return self.error_response("Rule deletion failed", f"Could not delete rule '{rule_id}'")
 
     async def _move_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Move a rule to different position"""
@@ -319,9 +319,8 @@ class RulesHandler(BaseHandler):
                         f"Rule ID: {rule_id}\n"
                         f"New Position: {position}\n"
                         + (f"Target Rule: {target_rule_id}\n" if target_rule_id else "")
-                        + f"\n⚠️ **Remember to activate changes!**"
+                        + "\n⚠️ **Remember to activate changes!**"
                     ),
                 }
             ]
-        else:
-            return self.error_response("Rule move failed", f"Could not move rule '{rule_id}'")
+        return self.error_response("Rule move failed", f"Could not move rule '{rule_id}'")

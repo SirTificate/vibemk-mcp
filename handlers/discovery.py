@@ -10,6 +10,8 @@ from utils import get_logger
 
 logger = get_logger(__name__)
 
+HOSTNAME_PREVIEW_LIMIT = 5
+
 
 class DiscoveryHandler(BaseHandler):
     """Handler for CheckMK host discovery operations"""
@@ -68,21 +70,22 @@ class DiscoveryHandler(BaseHandler):
                             f"Use 'wait_for_discovery' or 'get_discovery_status' to check progress.",
                         }
                     ]
-                else:
-                    # If single host discovery fails, fall back to bulk discovery
-                    logger.warning(f"Single host discovery failed for {host_name}, falling back to bulk discovery")
-                    return await self._fallback_to_bulk_discovery(host_name, mode)
+                # If single host discovery fails, fall back to bulk discovery
+                logger.warning("Single host discovery failed for %s, falling back to bulk discovery", host_name)
+                return await self._fallback_to_bulk_discovery(host_name, mode)
 
             except Exception as api_error:
                 # If single host discovery API has issues (like redirect loops), fall back to bulk discovery
                 logger.warning(
-                    f"Single host discovery API error for {host_name}: {api_error}. Falling back to bulk discovery"
+                    "Single host discovery API error for %s: %s. Falling back to bulk discovery",
+                    host_name,
+                    api_error,
                 )
                 return await self._fallback_to_bulk_discovery(host_name, mode)
 
         except Exception as e:
-            logger.exception(f"Error starting service discovery for {host_name}")
-            return [{"type": "text", "text": f"❌ Error starting service discovery: {str(e)}"}]
+            logger.exception("Error starting service discovery for %s", host_name)
+            return [{"type": "text", "text": f"❌ Error starting service discovery: {e!s}"}]
 
     async def _fallback_to_bulk_discovery(self, host_name: str, mode: str) -> List[Dict[str, str]]:
         """Fallback to bulk discovery for single host when individual discovery fails"""
@@ -115,22 +118,22 @@ class DiscoveryHandler(BaseHandler):
                         f"Mode: {mode} (mapped to bulk options)\n"
                         f"Job ID: {job_id}\n\n"
                         f"🔄 Discovery is running in the background.\n"
-                        f"Use 'get_bulk_discovery_status' with Job ID {job_id} or 'get_discovery_status' to check progress.\n\n"
+                        f"Use 'get_bulk_discovery_status' with Job ID {job_id} or 'get_discovery_status' to "
+                        f"check progress.\n\n"
                         f"💡 Note: Used bulk discovery as fallback due to API limitations.",
                     }
                 ]
-            else:
-                error_msg = result.get("data", {}).get("detail", "Unknown error")
-                return [
-                    {
-                        "type": "text",
-                        "text": f"❌ Failed to start discovery (both single and bulk methods failed): {error_msg}",
-                    }
-                ]
+            error_msg = result.get("data", {}).get("detail", "Unknown error")
+            return [
+                {
+                    "type": "text",
+                    "text": f"❌ Failed to start discovery (both single and bulk methods failed): {error_msg}",
+                }
+            ]
 
         except Exception as e:
-            logger.exception(f"Error in fallback bulk discovery for {host_name}")
-            return [{"type": "text", "text": f"❌ Error in fallback discovery method: {str(e)}"}]
+            logger.exception("Error in fallback bulk discovery for %s", host_name)
+            return [{"type": "text", "text": f"❌ Error in fallback discovery method: {e!s}"}]
 
     async def start_bulk_discovery(self, args: Dict[str, Any]) -> List[Dict[str, str]]:
         """Start bulk discovery for multiple hosts"""
@@ -173,8 +176,8 @@ class DiscoveryHandler(BaseHandler):
                         "text": f"✅ **Bulk Discovery Started**\n\n"
                         f"Job ID: **{job_id}**\n"
                         f"Hosts: {len(hostnames)} hosts\n"
-                        f"  • {', '.join(hostnames[:5])}"
-                        f"{'...' if len(hostnames) > 5 else ''}\n"
+                        f"  • {', '.join(hostnames[:HOSTNAME_PREVIEW_LIMIT])}"
+                        f"{'...' if len(hostnames) > HOSTNAME_PREVIEW_LIMIT else ''}\n"
                         f"Options:\n"
                         f"  • Full scan: {do_full_scan}\n"
                         f"  • Bulk size: {bulk_size}\n"
@@ -185,13 +188,12 @@ class DiscoveryHandler(BaseHandler):
                         f"Use 'get_bulk_discovery_status' with Job ID {job_id} to check progress.",
                     }
                 ]
-            else:
-                error_msg = result.get("data", {}).get("detail", "Unknown error")
-                return [{"type": "text", "text": f"❌ Failed to start bulk discovery: {error_msg}"}]
+            error_msg = result.get("data", {}).get("detail", "Unknown error")
+            return [{"type": "text", "text": f"❌ Failed to start bulk discovery: {error_msg}"}]
 
         except Exception as e:
             logger.exception("Error starting bulk discovery")
-            return [{"type": "text", "text": f"❌ Error starting bulk discovery: {str(e)}"}]
+            return [{"type": "text", "text": f"❌ Error starting bulk discovery: {e!s}"}]
 
     async def get_discovery_status(self, args: Dict[str, Any]) -> List[Dict[str, str]]:
         """Get current service discovery result for a host"""
@@ -221,13 +223,15 @@ class DiscoveryHandler(BaseHandler):
                 )
 
                 output = [
-                    f"📊 **Service Discovery Status**\n\n"
-                    f"Host: **{host_name}**\n\n"
-                    f"📋 **Service Summary:**\n"
-                    f"  • New services: {new_services}\n"
-                    f"  • Unchanged services: {unchanged_services}\n"
-                    f"  • Vanished services: {vanished_services}\n"
-                    f"  • Total services: {len(check_table)}\n\n"
+                    (
+                        f"📊 **Service Discovery Status**\n\n"
+                        f"Host: **{host_name}**\n\n"
+                        f"📋 **Service Summary:**\n"
+                        f"  • New services: {new_services}\n"
+                        f"  • Unchanged services: {unchanged_services}\n"
+                        f"  • Vanished services: {vanished_services}\n"
+                        f"  • Total services: {len(check_table)}\n\n"
+                    )
                 ]
 
                 if host_labels:
@@ -252,13 +256,12 @@ class DiscoveryHandler(BaseHandler):
                     output.append("\n")
 
                 return [{"type": "text", "text": "".join(output)}]
-            else:
-                error_msg = result.get("data", {}).get("detail", "Unknown error")
-                return [{"type": "text", "text": f"❌ Failed to get discovery status: {error_msg}"}]
+            error_msg = result.get("data", {}).get("detail", "Unknown error")
+            return [{"type": "text", "text": f"❌ Failed to get discovery status: {error_msg}"}]
 
         except Exception as e:
-            logger.exception(f"Error getting discovery status for {host_name}")
-            return [{"type": "text", "text": f"❌ Error getting discovery status: {str(e)}"}]
+            logger.exception("Error getting discovery status for %s", host_name)
+            return [{"type": "text", "text": f"❌ Error getting discovery status: {e!s}"}]
 
     async def get_bulk_discovery_status(self, args: Dict[str, Any]) -> List[Dict[str, str]]:
         """Get status of a bulk discovery job"""
@@ -310,13 +313,12 @@ class DiscoveryHandler(BaseHandler):
                         f"💡 Use 'get_discovery_status' on individual hosts for detailed results.",
                     }
                 ]
-            else:
-                error_msg = result.get("data", {}).get("detail", "Unknown error")
-                return [{"type": "text", "text": f"❌ Failed to get bulk discovery status: {error_msg}"}]
+            error_msg = result.get("data", {}).get("detail", "Unknown error")
+            return [{"type": "text", "text": f"❌ Failed to get bulk discovery status: {error_msg}"}]
 
         except Exception as e:
-            logger.exception(f"Error getting bulk discovery status for job {job_id}")
-            return [{"type": "text", "text": f"❌ Error getting bulk discovery status: {str(e)}"}]
+            logger.exception("Error getting bulk discovery status for job %s", job_id)
+            return [{"type": "text", "text": f"❌ Error getting bulk discovery status: {e!s}"}]
 
     async def wait_for_discovery(self, args: Dict[str, Any]) -> List[Dict[str, str]]:
         """Wait for service discovery completion on a host"""
@@ -338,13 +340,12 @@ class DiscoveryHandler(BaseHandler):
                         f"Use 'get_discovery_status' to see the results.",
                     }
                 ]
-            else:
-                error_msg = result.get("data", {}).get("detail", "Unknown error")
-                return [{"type": "text", "text": f"❌ Failed to wait for discovery completion: {error_msg}"}]
+            error_msg = result.get("data", {}).get("detail", "Unknown error")
+            return [{"type": "text", "text": f"❌ Failed to wait for discovery completion: {error_msg}"}]
 
         except Exception as e:
-            logger.exception(f"Error waiting for discovery completion for {host_name}")
-            return [{"type": "text", "text": f"❌ Error waiting for discovery completion: {str(e)}"}]
+            logger.exception("Error waiting for discovery completion for %s", host_name)
+            return [{"type": "text", "text": f"❌ Error waiting for discovery completion: {e!s}"}]
 
     async def get_discovery_background_job(self, args: Dict[str, Any]) -> List[Dict[str, str]]:
         """Get the last service discovery background job status on a host"""
@@ -382,10 +383,9 @@ class DiscoveryHandler(BaseHandler):
                         f"💡 Use 'get_discovery_status' to see discovery results.",
                     }
                 ]
-            else:
-                error_msg = result.get("data", {}).get("detail", "Unknown error")
-                return [{"type": "text", "text": f"❌ Failed to get discovery background job: {error_msg}"}]
+            error_msg = result.get("data", {}).get("detail", "Unknown error")
+            return [{"type": "text", "text": f"❌ Failed to get discovery background job: {error_msg}"}]
 
         except Exception as e:
-            logger.exception(f"Error getting discovery background job for {host_name}")
-            return [{"type": "text", "text": f"❌ Error getting discovery background job: {str(e)}"}]
+            logger.exception("Error getting discovery background job for %s", host_name)
+            return [{"type": "text", "text": f"❌ Error getting discovery background job: {e!s}"}]

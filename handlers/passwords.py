@@ -17,22 +17,21 @@ class PasswordsHandler(BaseHandler):
         try:
             if tool_name == "vibemk_get_passwords":
                 return await self._get_passwords(arguments)
-            elif tool_name == "vibemk_create_password":
+            if tool_name == "vibemk_create_password":
                 return await self._create_password(arguments)
-            elif tool_name == "vibemk_update_password":
+            if tool_name == "vibemk_update_password":
                 return await self._update_password(arguments)
-            elif tool_name == "vibemk_delete_password":
+            if tool_name == "vibemk_delete_password":
                 return await self._delete_password(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
-    async def _get_passwords(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_passwords(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of stored passwords"""
         result = self.client.get("domain-types/password/collections/all")
 
@@ -109,8 +108,7 @@ class PasswordsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Password creation failed", f"Could not create password '{ident}'")
+        return self.error_response("Password creation failed", f"Could not create password '{ident}'")
 
     async def _update_password(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update an existing stored password"""
@@ -164,8 +162,7 @@ class PasswordsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Password update failed", f"Could not update password '{ident}'")
+        return self.error_response("Password update failed", f"Could not update password '{ident}'")
 
     async def _delete_password(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a stored password"""
@@ -196,5 +193,4 @@ class PasswordsHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Password deletion failed", f"Could not delete password '{ident}'")
+        return self.error_response("Password deletion failed", f"Could not delete password '{ident}'")

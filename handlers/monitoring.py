@@ -33,27 +33,26 @@ class MonitoringHandler(BaseHandler):
         try:
             if tool_name == "vibemk_get_current_problems":
                 return await self._get_current_problems(arguments)
-            elif tool_name == "vibemk_acknowledge_problem":
+            if tool_name == "vibemk_acknowledge_problem":
                 return await self._acknowledge_problem(arguments)
-            elif tool_name == "vibemk_schedule_downtime":
+            if tool_name == "vibemk_schedule_downtime":
                 return await self._schedule_downtime(arguments)
-            elif tool_name == "vibemk_get_downtimes":
+            if tool_name == "vibemk_get_downtimes":
                 return await self._get_downtimes(arguments)
-            elif tool_name == "vibemk_delete_downtime":
+            if tool_name == "vibemk_delete_downtime":
                 return await self._delete_downtime(arguments)
-            elif tool_name == "vibemk_reschedule_check":
+            if tool_name == "vibemk_reschedule_check":
                 return await self._reschedule_check(arguments)
-            elif tool_name == "vibemk_get_comments":
+            if tool_name == "vibemk_get_comments":
                 return await self._get_comments(arguments)
-            elif tool_name == "vibemk_add_comment":
+            if tool_name == "vibemk_add_comment":
                 return await self._add_comment(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
     async def _get_current_problems(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -110,7 +109,7 @@ class MonitoringHandler(BaseHandler):
                         problems.append(f"🔧 SERVICE: {host_name}/{description} - {state_name}")
 
         except Exception as e:
-            self.logger.error(f"Error getting current problems: {e}")
+            self.logger.exception("Error getting current problems")
             return self.error_response("Error retrieving problems", str(e))
 
         if not problems:
@@ -162,11 +161,10 @@ class MonitoringHandler(BaseHandler):
             return [
                 {
                     "type": "text",
-                    "text": (f"✅ **Problem Acknowledged**\n\n" f"Target: {target}\n" f"Comment: {comment}"),
+                    "text": f"✅ **Problem Acknowledged**\n\nTarget: {target}\nComment: {comment}",
                 }
             ]
-        else:
-            return self.error_response("Acknowledgment failed", f"Could not acknowledge {target}")
+        return self.error_response("Acknowledgment failed", f"Could not acknowledge {target}")
 
     async def _schedule_downtime(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Schedule maintenance downtime"""
@@ -211,8 +209,7 @@ class MonitoringHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Downtime scheduling failed", f"Could not schedule downtime for {target}")
+        return self.error_response("Downtime scheduling failed", f"Could not schedule downtime for {target}")
 
     async def _get_downtimes(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of scheduled downtimes"""
@@ -265,8 +262,7 @@ class MonitoringHandler(BaseHandler):
                     "text": f"✅ **Downtime Deleted**\n\nDowntime ID: {downtime_id}\nThe downtime has been removed.",
                 }
             ]
-        else:
-            return self.error_response("Downtime deletion failed", f"Could not delete downtime '{downtime_id}'")
+        return self.error_response("Downtime deletion failed", f"Could not delete downtime '{downtime_id}'")
 
     async def _reschedule_check(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Force immediate check execution"""
@@ -302,8 +298,7 @@ class MonitoringHandler(BaseHandler):
                     "text": f"🔄 **Check Rescheduled**\n\nTarget: {target}\nImmediate check has been scheduled.",
                 }
             ]
-        else:
-            return self.error_response("Check reschedule failed", f"Could not reschedule check for {target}")
+        return self.error_response("Check reschedule failed", f"Could not reschedule check for {target}")
 
     async def _get_comments(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of comments"""
@@ -382,5 +377,4 @@ class MonitoringHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Comment creation failed", f"Could not add comment to {target}")
+        return self.error_response("Comment creation failed", f"Could not add comment to {target}")

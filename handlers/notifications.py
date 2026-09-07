@@ -9,6 +9,7 @@ action rather than an HTTP DELETE. None of them declares an ETag, so no
 If-Match is required.
 """
 
+import json
 from typing import Any, Dict, List
 
 from api.exceptions import CheckMKError
@@ -29,21 +30,20 @@ class NotificationHandler(BaseHandler):
         try:
             if tool_name == "vibemk_get_notification_rules":
                 return await self._list_rules()
-            elif tool_name == "vibemk_get_notification_rule":
+            if tool_name == "vibemk_get_notification_rule":
                 return await self._show_rule(arguments)
-            elif tool_name == "vibemk_create_notification_rule":
+            if tool_name == "vibemk_create_notification_rule":
                 return await self._create_rule(arguments)
-            elif tool_name == "vibemk_update_notification_rule":
+            if tool_name == "vibemk_update_notification_rule":
                 return await self._update_rule(arguments)
-            elif tool_name == "vibemk_delete_notification_rule":
+            if tool_name == "vibemk_delete_notification_rule":
                 return await self._delete_rule(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
     async def _list_rules(self) -> List[Dict[str, Any]]:
@@ -140,6 +140,4 @@ class NotificationHandler(BaseHandler):
 
     @staticmethod
     def _as_json(value: Any) -> str:
-        import json
-
         return json.dumps(value, indent=2, ensure_ascii=False)

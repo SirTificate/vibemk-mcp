@@ -70,6 +70,11 @@ target-version = "py38"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "ANN", "B", "A", "C4", "DTZ", "T10", "EXE", "ISC", "ICN", "G", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF"]
 ignore = ["ANN101", "ANN102", "ANN401"]
+# Response text throughout the codebase uses emoji as message-type icons
+# (success/error/info/add, etc.). ℹ and ➕ are the two that RUF001 flags as
+# visually confusable with ASCII; both are intentional icons, not typos, so
+# they are allowlisted globally rather than suppressed per file.
+allowed-confusables = ["ℹ", "➕"]
 
 # Same rule as the mypy list above: this may only shrink.
 [tool.ruff.lint.per-file-ignores]
@@ -77,19 +82,28 @@ ignore = ["ANN101", "ANN102", "ANN401"]
 "api/exceptions.py" = ["ANN204", "PIE790"]
 "checkmk_types/__init__.py" = ["F403", "F405", "RUF022"]
 "checkmk_types/checkmk_types.py" = ["F401"]
-"handlers/__init__.py" = ["RUF022"]
-"handlers/base.py" = ["PIE790", "PYI041", "RUF001"]
-"handlers/configuration.py" = ["G004", "PLR2004", "RET505", "RUF001"]
-"handlers/discovery.py" = ["E501", "G004", "ISC004", "PLR2004", "RET505", "RUF010"]
+# TRY300 only: each flagged method's try wraps both the API call and the response
+# processing that follows it (checking result["success"], reading nested fields),
+# by design, so that a malformed response falls through to the same except Exception
+# handler as a transport error instead of crashing. TRY300 wants the final return
+# moved into a try/else, which would take that processing out from under the
+# except and is exactly the narrowing this project's hardening passes avoid.
+"handlers/discovery.py" = ["TRY300"]
 # PLR0911/PLR0912 only: handle() is a tool-name dispatch table (same shape kept
 # across every handler module); _parse_natural_time's five parsing patterns are
 # independent early-returning alternatives over already-tested (17 regression
 # tests), timezone-sensitive code, so it is deliberately not restructured here.
 # Restructuring either is separate work from this pass.
 "handlers/downtimes.py" = ["PLR0911", "PLR0912"]
-"handlers/folders.py" = ["G004", "PLR0911", "RET505"]
-"handlers/groups.py" = ["ARG002", "G004", "PLR0911", "RET505"]
-"handlers/host_group_rules.py" = ["ARG002", "E501", "F541", "G004", "PLR0911", "PLR0912", "PLR0915", "RET505", "RUF010"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/folders.py" = ["PLR0911"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/groups.py" = ["PLR0911"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/host_group_rules.py" = ["PLR0911"]
 # PLR0911/PLR0912 only: handle() is a tool-name dispatch table (same shape kept
 # across every handler module) with more tool branches than most; restructuring
 # it is separate work from this pass.
@@ -99,14 +113,28 @@ ignore = ["ANN101", "ANN102", "ANN401"]
 # metrics, then fetch the named one) whose branches are independent by design.
 # Restructuring either is separate work from this pass.
 "handlers/metrics.py" = ["PLR0911"]
-"handlers/monitoring.py" = ["G004", "ISC001", "PLR0911", "RET505", "RUF001", "TRY400"]
-"handlers/notifications.py" = ["G004", "PLC0415", "PLR0911", "RET505"]
-"handlers/passwords.py" = ["ARG002", "G004", "PLR0911", "RET505"]
-"handlers/rules.py" = ["ARG002", "F541", "F841", "G004", "PLR0911", "PLR2004", "RET505"]
-"handlers/service_groups.py" = ["ARG002", "F401", "F541", "F841", "PLC0415", "PLR0911", "RET505", "RUF001", "RUF010"]
-"handlers/tags.py" = ["ARG002", "G004", "PLR0911", "PLR2004", "RET505"]
-"handlers/users.py" = ["ARG002", "F541", "G004", "PLR0911", "PLR0912", "RET505", "RUF001", "RUF005"]
-"mcp/tools.py" = ["E501", "RUF001"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/monitoring.py" = ["PLR0911"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/notifications.py" = ["PLR0911"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/passwords.py" = ["PLR0911"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/rules.py" = ["PLR0911"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/service_groups.py" = ["PLR0911"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/tags.py" = ["PLR0911"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module). Restructuring it is separate work from this pass.
+"handlers/users.py" = ["PLR0911"]
+"mcp/tools.py" = ["E501"]
 "tests/conftest.py" = ["ANN001", "ANN201", "F401"]
 "tests/test_api_client.py" = ["ANN001", "ANN201", "F401", "PLR2004"]
 "tests/test_checkmk_endpoints.py" = ["ANN001", "ANN201"]

@@ -27,7 +27,6 @@ class BaseHandler(ABC):
     @abstractmethod
     async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle tool call and return MCP response content"""
-        pass
 
     def _if_match_header(self, endpoint: str) -> Dict[str, str]:
         """Build an If-Match header from the current ETag of an object.
@@ -80,7 +79,7 @@ class BaseHandler(ABC):
             text += f"\n\n{self._format_data(data)}"
         return [{"type": "text", "text": text}]
 
-    def _format_data(self, data: Union[Dict[str, Any], List[Any], str, int, float, None]) -> str:
+    def _format_data(self, data: Union[Dict[str, Any], List[Any], str, float, None]) -> str:
         """Format data for display"""
         if isinstance(data, dict):
             formatted_lines: List[str] = []
