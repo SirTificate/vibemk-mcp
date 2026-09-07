@@ -5,6 +5,7 @@ Connection and diagnostics handlers
 import json
 import urllib.error
 import urllib.request
+from http.client import IncompleteRead
 from typing import Any, Dict, List, Optional
 
 from api.exceptions import CheckMKError
@@ -117,11 +118,17 @@ class ConnectionHandler(BaseHandler):
 
         except urllib.error.HTTPError as e:
             try:
+                # e.read() is a live socket read (HTTPError only raises on the
+                # status line; the body is fetched here), so this must also
+                # cover transport failures, not just a malformed/missing body.
                 error_data = json.loads(e.read().decode())
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError, OSError, IncompleteRead):
                 # ValueError covers a non-JSON error body (json.JSONDecodeError is a
                 # subclass); AttributeError covers HTTPError.read() when the response
                 # has no body to read (e.fp is None), which real error responses hit.
+                # OSError/IncompleteRead cover a socket failure while reading the
+                # body (ConnectionResetError, TimeoutError, ssl.SSLError are all
+                # OSError subclasses; IncompleteRead is not).
                 error_data = {"error": e.reason}
 
             return [

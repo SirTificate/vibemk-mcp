@@ -144,9 +144,10 @@ allowed-confusables = ["ℹ", "➕"]
 #     already documented by context immediately above the assertion (the
 #     env/config dict just set, or a well-known HTTP/JSON-RPC status code) --
 #     naming a constant would not make the expectation any clearer.
-#   SLF001 (test_etag_locking, test_handlers_downtimes, test_handlers_metrics):
-#     these files test a handler's private time/ETag-parsing helpers directly;
-#     that access is the test's whole point, not an accident.
+#   SLF001 (test_etag_locking, test_handlers_connection, test_handlers_downtimes,
+#     test_handlers_metrics): these files test a handler's private time/ETag-parsing
+#     or request-path helpers directly; that access is the test's whole point,
+#     not an accident.
 #   TRY003 (test_mcp_server): a two-line local test double that simulates a
 #     configuration failure, not application code that warrants its own
 #     exception subclass.
@@ -157,6 +158,7 @@ allowed-confusables = ["ℹ", "➕"]
 "tests/test_config.py" = ["ANN201", "PLR2004"]
 "tests/test_dotenv.py" = ["ANN001", "ANN201"]
 "tests/test_etag_locking.py" = ["ANN001", "ANN201", "SLF001"]
+"tests/test_handlers_connection.py" = ["ANN001", "ANN201", "SLF001"]
 "tests/test_handlers_downtimes.py" = ["ANN001", "ANN201", "PLR2004", "SLF001"]
 "tests/test_handlers_hosts.py" = ["ANN001", "ANN201"]
 "tests/test_handlers_metrics.py" = ["ANN001", "ANN201", "SLF001"]

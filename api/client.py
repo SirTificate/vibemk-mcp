@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, replace
-from http.client import HTTPMessage
+from http.client import HTTPMessage, IncompleteRead
 from typing import IO, Any, Dict, List, Optional
 
 from api.exceptions import (
@@ -261,8 +261,11 @@ class CheckMKClient:
         """Handle HTTP errors with appropriate exceptions and retries"""
 
         try:
+            # error.read() is a live socket read (HTTPError only raises on the
+            # status line; the body is fetched here), so it can also fail with
+            # a transport error -- not just a malformed/missing body.
             error_data = json.loads(error.read().decode())
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError, OSError, IncompleteRead):
             error_data = {"error": error.reason}
 
         # Retry logic for transient errors (500, 502, 503, 504)
