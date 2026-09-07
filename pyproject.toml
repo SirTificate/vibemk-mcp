@@ -74,12 +74,9 @@ ignore = ["ANN101", "ANN102", "ANN401"]
 # Same rule as the mypy list above: this may only shrink.
 [tool.ruff.lint.per-file-ignores]
 "api/__init__.py" = ["RUF022"]
-"api/client.py" = ["ANN001", "ANN202", "ANN204", "ARG002", "B904", "E722", "ERA001", "F401", "G004", "PLR0912", "PLR0913", "PLR0917", "PLR2004", "RET505", "RET506", "RUF010", "TRY003"]
 "api/exceptions.py" = ["ANN204", "PIE790"]
 "checkmk_types/__init__.py" = ["F403", "F405", "RUF022"]
 "checkmk_types/checkmk_types.py" = ["F401"]
-"config/dotenv.py" = ["PLR2004", "SIM102"]
-"config/settings.py" = ["ANN204", "PIE790", "RET505", "TRY003"]
 "handlers/__init__.py" = ["RUF022"]
 "handlers/acknowledgements.py" = ["ANN204", "ARG002", "E501", "E722", "F401", "F541", "G004", "N802", "PIE810", "PLR0911", "PLR0912", "PLR0915", "RET505", "RUF010"]
 "handlers/base.py" = ["PIE790", "PYI041", "RUF001"]
@@ -104,7 +101,6 @@ ignore = ["ANN101", "ANN102", "ANN401"]
 "handlers/timeperiods.py" = ["ARG002", "F541", "G004", "PLR0911", "RET505", "SIM110"]
 "handlers/user_roles.py" = ["B007", "E501", "F541", "F841", "G004", "ISC001", "PLR0911", "PLR2004", "RET505", "TRY300"]
 "handlers/users.py" = ["ARG002", "F541", "G004", "PLR0911", "PLR0912", "RET505", "RUF001", "RUF005"]
-"main.py" = ["ANN201", "EXE001", "PLC0415", "SIM105"]
 "mcp/tools.py" = ["E501", "RUF001"]
 "tests/conftest.py" = ["ANN001", "ANN201", "F401"]
 "tests/test_api_client.py" = ["ANN001", "ANN201", "F401", "PLR2004"]
@@ -121,8 +117,6 @@ ignore = ["ANN101", "ANN102", "ANN401"]
 "tests/test_mcp_server.py" = ["ANN001", "ANN201", "ANN202", "ANN204", "PLR2004", "TRY003"]
 "tests/test_tool_registry.py" = ["ANN001", "ANN201", "PLC0415"]
 "tests/test_transport.py" = ["ANN001", "ANN201", "ANN202", "ARG001", "F401", "PLC0415"]
-"utils/__init__.py" = ["RUF022"]
-"utils/logging.py" = ["PTH103", "PTH110", "PTH120"]
 
 [tool.mypy]
 python_version = "3.9"
@@ -153,9 +147,6 @@ disallow_untyped_defs = false  # Allow untyped tests during migration
 # change must be brought up to the configured strictness.
 [[tool.mypy.overrides]]
 module = [
-    "api.client",
-    "config.dotenv",
-    "config.settings",
     "handlers.acknowledgements",
     "handlers.connection",
     "handlers.debug",
@@ -166,7 +157,6 @@ module = [
     "handlers.services",
     "handlers.timeperiods",
     "handlers.user_roles",
-    "main",
     "tests.conftest",
     "tests.test_api_client",
     "tests.test_checkmk_endpoints",

@@ -20,9 +20,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# A value can only be "quoted" if it has at least an opening and a closing
+# quote character, and a matching pair means the quote character occurs
+# exactly this many times.
+_MIN_QUOTED_LENGTH = 2
+_QUOTE_PAIR_COUNT = 2
 
 
 def _package_root() -> Path:
@@ -30,7 +36,7 @@ def _package_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def _candidates() -> list:
+def _candidates() -> List[Path]:
     """Where to look for a .env, most specific first.
 
     The working directory comes first so a pip-installed vibeMK finds the
@@ -57,9 +63,13 @@ def _unquote(value: str) -> str:
     Requires the quote character to occur exactly twice, so a value such as
     '"a"b"' is left intact instead of losing two characters.
     """
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        if value.count(value[0]) == 2:
-            return value[1:-1]
+    if (
+        len(value) >= _MIN_QUOTED_LENGTH
+        and value[0] == value[-1]
+        and value[0] in "\"'"
+        and value.count(value[0]) == _QUOTE_PAIR_COUNT
+    ):
+        return value[1:-1]
     return value
 
 
@@ -86,7 +96,7 @@ def parse_dotenv(text: str) -> Dict[str, str]:
             continue
 
         value = value.strip()
-        quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"
+        quoted = len(value) >= _MIN_QUOTED_LENGTH and value[0] == value[-1] and value[0] in "\"'"
         if not quoted:
             value = _strip_inline_comment(value).strip()
         values[key] = _unquote(value)

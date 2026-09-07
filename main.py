@@ -19,14 +19,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import asyncio
+import contextlib
+import os
 import sys
+from typing import TYPE_CHECKING, cast
 
 from config.dotenv import load_dotenv
 from mcp.server import CheckMKMCPServer
 from utils import setup_logging
 
+if TYPE_CHECKING:
+    import io
 
-async def main():
+
+async def main() -> None:
     """Main entry point for vibeMK"""
 
     # Force UTF-8 on stdio regardless of the launching environment. The MCP
@@ -34,10 +40,8 @@ async def main():
     # server crashes on Windows with UnicodeEncodeError when the parent process
     # doesn't set PYTHONIOENCODING.
     for stream in (sys.stdout, sys.stdin, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except (AttributeError, ValueError):
-            pass
+        with contextlib.suppress(AttributeError, ValueError):
+            cast("io.TextIOWrapper", stream).reconfigure(encoding="utf-8")
 
     # An optional .env is read before anything consults the environment, so
     # settings like LOGFILE take effect for this run. Real environment
@@ -45,8 +49,6 @@ async def main():
     load_dotenv()
 
     # Setup logging with debug mode if LOGFILE is specified for better troubleshooting
-    import os
-
     debug_mode = bool(os.environ.get("LOGFILE"))  # Enable debug logging when file logging is active
     setup_logging(debug=debug_mode)
 
