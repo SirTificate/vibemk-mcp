@@ -106,6 +106,7 @@ ignore = ["ANN101", "ANN102", "ANN401"]
 "tests/test_handlers_hosts.py" = ["ANN001", "ANN201", "F401", "F841"]
 "tests/test_handlers_metrics.py" = ["ANN001", "ANN201", "ARG001", "PT006", "SLF001"]
 "tests/test_handlers_notifications.py" = ["ANN001", "ANN201"]
+"tests/test_handlers_services.py" = ["ANN001", "ANN201"]
 "tests/test_integration.py" = ["ANN001", "ANN201", "B007", "F401", "PLC0415", "PLR2004"]
 "tests/test_mcp_server.py" = ["ANN001", "ANN201", "ANN202", "ANN204", "PLR2004", "TRY003"]
 "tests/test_tool_registry.py" = ["ANN001", "ANN201", "PLC0415"]
@@ -152,6 +153,7 @@ module = [
     "tests.test_handlers_hosts",
     "tests.test_handlers_metrics",
     "tests.test_handlers_notifications",
+    "tests.test_handlers_services",
     "tests.test_integration",
     "tests.test_mcp_server",
     "tests.test_transport",
