@@ -1,38 +1,43 @@
 """
 Structural guards for the MCP tool registry.
 
-The catalogue in mcp/tools.py and the dispatch table in mcp/server.py are
+The catalogue in mcp/tools.py and the dispatch table in mcp/registry.py are
 maintained by hand in two different files. These tests keep them in agreement:
 a tool the client can see must be callable, and a handler that exists must be
 reachable.
 """
 
-import os
-from unittest.mock import patch
+import ast
+import pathlib
+from typing import Dict
+from unittest.mock import MagicMock
 
 import pytest
 
+from mcp.registry import ToolRegistry
 from mcp.tools import get_all_tools
+
+HANDLERS_DIR = pathlib.Path(__file__).resolve().parent.parent / "handlers"
 
 
 @pytest.fixture
-def handler_names():
-    """Tool names wired to a handler in the real (non-test) dispatch table."""
-    env = {
-        "CHECKMK_SERVER_URL": "http://checkmk.invalid",
-        "CHECKMK_SITE": "test",
-        "CHECKMK_USERNAME": "automation",
-        "CHECKMK_PASSWORD": "secret",
-    }
-    with patch.dict(os.environ, env, clear=True), patch(
-        "api.client.CheckMKClient._detect_api_url",
-        return_value="http://checkmk.invalid/test/check_mk/api/1.0",
-    ):
-        from mcp.server import CheckMKMCPServer
+def registry():
+    """A registry over a client that is never actually called."""
+    return ToolRegistry.from_client(MagicMock())
 
-        server = CheckMKMCPServer()
-        server._ensure_initialized()
-        return server.handlers
+
+def test_registry_exposes_every_wired_name(registry):
+    assert "vibemk_get_checkmk_hosts" in registry.tool_names()
+
+
+def test_registry_returns_none_for_an_unknown_tool(registry):
+    assert registry.handler_for("vibemk_not_a_tool") is None
+
+
+def test_registry_returns_a_handler_with_a_handle_method(registry):
+    handler = registry.handler_for("vibemk_get_checkmk_hosts")
+
+    assert hasattr(handler, "handle")
 
 
 def test_no_tool_is_declared_twice():
@@ -42,18 +47,46 @@ def test_no_tool_is_declared_twice():
     assert duplicates == [], f"declared more than once: {duplicates}"
 
 
-def test_every_declared_tool_has_a_handler(handler_names):
+def test_every_declared_tool_has_a_handler(registry):
     declared = {tool["name"] for tool in get_all_tools()}
 
-    unroutable = sorted(name for name in declared if handler_names.get(name) is None)
+    unroutable = sorted(name for name in declared if registry.handler_for(name) is None)
     assert unroutable == [], f"advertised to the client but not callable: {unroutable}"
 
 
-def test_every_handler_is_declared_as_a_tool(handler_names):
+def test_every_handler_is_declared_as_a_tool(registry):
     declared = {tool["name"] for tool in get_all_tools()}
 
-    unreachable = sorted(name for name in handler_names if name not in declared)
+    unreachable = sorted(name for name in registry.tool_names() if name not in declared)
     assert unreachable == [], f"wired to a handler but never advertised: {unreachable}"
+
+
+def test_every_vibemk_string_literal_in_a_handler_is_a_declared_tool():
+    """Catches orphan dispatch branches the registry-level guards cannot see.
+
+    ToolRegistry only ever sees tool names that were actually wired in
+    mcp/registry.py, so a handler's own `if tool_name == "vibemk_x": ...`
+    dispatch branch for a name nobody registers is invisible to it — the
+    branch is simply dead code that no request can ever reach. This walks
+    every handlers/*.py module with ast and collects every string constant
+    that starts with "vibemk_" (dict keys and comparison literals alike, not
+    substrings inside longer help text, since ast.Constant.value is the whole
+    literal), then checks each one against the declared catalogue directly.
+    """
+    declared = {tool["name"] for tool in get_all_tools()}
+
+    orphans: Dict[str, str] = {}
+    for path in sorted(HANDLERS_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+                continue
+            if not node.value.startswith("vibemk_"):
+                continue
+            if node.value not in declared:
+                orphans.setdefault(node.value, path.name)
+
+    assert orphans == {}, f"referenced in a handler but never declared as a tool: {orphans}"
 
 
 def test_every_tool_has_a_usable_schema():
@@ -70,6 +103,16 @@ def test_every_tool_has_a_usable_schema():
             assert required in properties, f"{name} requires '{required}' but never defines it"
 
 
+def test_every_tool_name_keeps_the_vibemk_prefix():
+    """The vibemk_ prefix is the compatibility surface for every existing client.
+
+    Nothing else in the suite pins this: a tool renamed together with its
+    registry key would otherwise pass every other structural guard here.
+    """
+    unprefixed = sorted(tool["name"] for tool in get_all_tools() if not tool["name"].startswith("vibemk_"))
+    assert unprefixed == [], f"missing the vibemk_ prefix: {unprefixed}"
+
+
 def test_repository_root_is_not_a_python_package():
     """The checkout directory must not be importable as a package.
 
@@ -79,8 +122,6 @@ def test_repository_root_is_not_a_python_package():
     repository to anything containing a hyphen then breaks collection of the
     whole suite with "attempted relative import with no known parent package".
     """
-    import pathlib
-
     root = pathlib.Path(__file__).resolve().parent.parent
 
     assert not (root / "__init__.py").exists(), (

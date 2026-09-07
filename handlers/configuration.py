@@ -7,6 +7,8 @@ from typing import Any, Dict, List
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
 
+MAX_DISPLAYED_CHANGES = 15
+
 
 class ConfigurationHandler(BaseHandler):
     """Handle configuration management operations"""
@@ -17,15 +19,14 @@ class ConfigurationHandler(BaseHandler):
         try:
             if tool_name == "vibemk_activate_changes":
                 return await self._activate_changes(arguments)
-            elif tool_name == "vibemk_get_pending_changes":
+            if tool_name == "vibemk_get_pending_changes":
                 return await self._get_pending_changes()
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
     async def _activate_changes(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -79,8 +80,7 @@ class ConfigurationHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Activation failed", "Could not activate changes despite proper headers")
+        return self.error_response("Activation failed", "Could not activate changes despite proper headers")
 
     async def _get_pending_changes(self) -> List[Dict[str, Any]]:
         """Get list of pending configuration changes"""
@@ -149,8 +149,12 @@ class ConfigurationHandler(BaseHandler):
                     f"📋 **Pending Changes** ({len(changes)} total)\n\n"
                     f"**Summary:** {summary_text}\n\n"
                     f"**Details:**\n"
-                    + "\n".join(change_list[:15])
-                    + (f"\n\n... and {len(changes) - 15} more changes" if len(changes) > 15 else "")
+                    + "\n".join(change_list[:MAX_DISPLAYED_CHANGES])
+                    + (
+                        f"\n\n... and {len(changes) - MAX_DISPLAYED_CHANGES} more changes"
+                        if len(changes) > MAX_DISPLAYED_CHANGES
+                        else ""
+                    )
                     + "\n\n⚠️ **Use 'activate_changes' to apply these changes.**"
                 ),
             }

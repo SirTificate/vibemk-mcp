@@ -11,6 +11,8 @@ Which endpoints require If-Match was read from the `etag="input"` / `"both"`
 declarations in cmk/gui/openapi/endpoints at tag v2.4.0p2.
 """
 
+from typing import Any, Optional
+
 import pytest
 
 from api.exceptions import CheckMKNotFoundError
@@ -36,7 +38,7 @@ def response(etag=ETAG, data=None):
     }
 
 
-def if_match_of(mock_call) -> str:
+def if_match_of(mock_call: Any) -> Optional[str]:
     return (mock_call.kwargs.get("headers") or {}).get("If-Match")
 
 

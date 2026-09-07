@@ -19,7 +19,33 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
+
+
+def _safe_bool(value: str, default: bool) -> bool:
+    """Parse an environment variable as a bool, falling back to `default`.
+
+    Falls back on empty and on any value that isn't a recognized spelling,
+    rather than treating an unrecognized value as False.
+    """
+    if not value:
+        return default
+    lower_value = value.lower()
+    if lower_value in ("true", "1", "yes", "on"):
+        return True
+    if lower_value in ("false", "0", "no", "off"):
+        return False
+    return default  # Return default for invalid values
+
+
+def _safe_int(value: str, default: int) -> int:
+    """Parse an environment variable as an int, falling back to `default`."""
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
 
 
 @dataclass(repr=False)
@@ -35,23 +61,29 @@ class CheckMKConfig:
     max_retries: int = 3
     debug: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Post-initialization validation and normalization"""
         # Validate required fields
         if not self.server_url:
-            raise ValueError("CHECKMK_SERVER_URL is required")
+            msg = "CHECKMK_SERVER_URL is required"
+            raise ValueError(msg)
         if not self.username:
-            raise ValueError("CHECKMK_USERNAME is required")
+            msg = "CHECKMK_USERNAME is required"
+            raise ValueError(msg)
         if not self.password:
-            raise ValueError("CHECKMK_PASSWORD is required")
+            msg = "CHECKMK_PASSWORD is required"
+            raise ValueError(msg)
         if not self.site:
-            raise ValueError("CHECKMK_SITE is required")
+            msg = "CHECKMK_SITE is required"
+            raise ValueError(msg)
 
         # Validate numeric fields
         if self.timeout <= 0:
-            raise ValueError("timeout must be positive")
+            msg = "timeout must be positive"
+            raise ValueError(msg)
         if self.max_retries < 0:
-            raise ValueError("max_retries must be non-negative")
+            msg = "max_retries must be non-negative"
+            raise ValueError(msg)
 
         # Normalize URL
         self.server_url = self._normalize_url(self.server_url)
@@ -93,56 +125,38 @@ class CheckMKConfig:
         # Handle required fields
         server_url = os.environ.get("CHECKMK_SERVER_URL")
         if not server_url:
-            raise ValueError("CHECKMK_SERVER_URL is required")
+            msg = "CHECKMK_SERVER_URL is required"
+            raise ValueError(msg)
 
         site = os.environ.get("CHECKMK_SITE")
         if not site:
-            raise ValueError("CHECKMK_SITE is required")
+            msg = "CHECKMK_SITE is required"
+            raise ValueError(msg)
 
         username = os.environ.get("CHECKMK_USERNAME")
         if not username:
-            raise ValueError("CHECKMK_USERNAME is required")
+            msg = "CHECKMK_USERNAME is required"
+            raise ValueError(msg)
 
         password = os.environ.get("CHECKMK_PASSWORD")
         if not password:
-            raise ValueError("CHECKMK_PASSWORD is required")
-
-        # Handle boolean with fallback
-        def safe_bool(value: str, default: bool) -> bool:
-            if not value:
-                return default
-            # Invalid values should return default, not False
-            lower_value = value.lower()
-            if lower_value in ("true", "1", "yes", "on"):
-                return True
-            elif lower_value in ("false", "0", "no", "off"):
-                return False
-            else:
-                return default  # Return default for invalid values
-
-        # Handle integer with fallback
-        def safe_int(value: str, default: int) -> int:
-            if not value:
-                return default
-            try:
-                return int(value)
-            except ValueError:
-                return default
+            msg = "CHECKMK_PASSWORD is required"
+            raise ValueError(msg)
 
         return cls(
             server_url=server_url,
             site=site,
             username=username,
             password=password,
-            verify_ssl=safe_bool(os.environ.get("CHECKMK_VERIFY_SSL"), True),  # Default to True for security
-            timeout=safe_int(os.environ.get("CHECKMK_TIMEOUT"), 30),
-            max_retries=safe_int(os.environ.get("CHECKMK_MAX_RETRIES"), 3),
-            debug=safe_bool(os.environ.get("CHECKMK_DEBUG"), False),
+            verify_ssl=_safe_bool(os.environ.get("CHECKMK_VERIFY_SSL", ""), True),  # Default True for security
+            timeout=_safe_int(os.environ.get("CHECKMK_TIMEOUT", ""), 30),
+            max_retries=_safe_int(os.environ.get("CHECKMK_MAX_RETRIES", ""), 3),
+            debug=_safe_bool(os.environ.get("CHECKMK_DEBUG", ""), False),
         )
 
     def validate(self) -> None:
         """Validate configuration (called automatically in __post_init__)"""
-        pass  # Validation now happens in __post_init__
+        # Validation now happens in __post_init__
 
 
 @dataclass
@@ -152,13 +166,27 @@ class MCPConfig:
     name: str = "vibemk"
     version: str = "0.4.0"
     protocol_version: str = "2024-11-05"  # Keep stable version for now
+    supported_protocol_versions: Tuple[str, ...] = ("2024-11-05",)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Post-initialization validation"""
         if not self.name or self.name.strip() == "":
-            raise ValueError("name cannot be empty")
+            msg = "name cannot be empty"
+            raise ValueError(msg)
         if not self.version or self.version.strip() == "":
-            raise ValueError("version cannot be empty")
+            msg = "version cannot be empty"
+            raise ValueError(msg)
+
+    def negotiate_protocol_version(self, requested: Optional[str]) -> str:
+        """Return a protocol version this server actually speaks.
+
+        The MCP specification requires the server to answer initialize with a
+        version it supports. Echoing the client's string instead claims support
+        for anything a client cares to name.
+        """
+        if requested in self.supported_protocol_versions:
+            return requested
+        return self.protocol_version
 
     @property
     def server_name(self) -> str:

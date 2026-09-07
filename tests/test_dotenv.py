@@ -9,6 +9,7 @@ comments, and quoted values.
 
 import os
 from pathlib import Path
+from typing import Callable, Union
 from unittest.mock import patch
 
 import pytest
@@ -17,10 +18,10 @@ from config.dotenv import load_dotenv
 
 
 @pytest.fixture
-def env_file(tmp_path):
+def env_file(tmp_path: Path) -> Callable[..., Path]:
     """Write a .env file and return a loader bound to it."""
 
-    def write(content: str, encoding: str = "utf-8") -> Path:
+    def write(content: Union[str, bytes], encoding: str = "utf-8") -> Path:
         path = tmp_path / ".env"
         if isinstance(content, bytes):
             path.write_bytes(content)

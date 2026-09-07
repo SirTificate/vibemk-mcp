@@ -2,8 +2,6 @@
 Tests for Host Handler
 """
 
-from unittest.mock import AsyncMock, patch
-
 import pytest
 
 from api.exceptions import CheckMKAPIError
@@ -132,8 +130,10 @@ class TestHostHandler:
         # Setup mock for host existence check - host doesn't exist
         host_handler.client.get.return_value = {"success": False, "data": {}}
 
-        # Execute without required parameters
-        result = await host_handler.handle(
+        # Execute without required parameters. Only exercised for "must not
+        # raise" here; the assertions below are against the invalid-parameter
+        # call, so the response isn't captured.
+        await host_handler.handle(
             "vibemk_create_host",
             {
                 "host_name": "new-server"

@@ -5,10 +5,9 @@ These cover the contract between user-supplied time expressions and the
 UTC timestamps that get sent to the CheckMK REST API.
 """
 
-import os
 import time
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from typing import Any, Dict, Optional
 
 import pytest
 
@@ -67,7 +66,8 @@ class TestExplicitDatesArePreserved:
 class TestLocalTimesAreConvertedToUtc:
     """Times the user names without an offset are local, and must be sent as UTC."""
 
-    def test_time_tomorrow_is_converted_from_local_to_utc(self, handler, berlin_tz):
+    @pytest.mark.usefixtures("berlin_tz")
+    def test_time_tomorrow_is_converted_from_local_to_utc(self, handler):
         result = handler._parse_downtime_times("22:00 tomorrow", "", 120)
 
         local_tomorrow = (datetime.now().astimezone() + timedelta(days=1)).replace(
@@ -75,7 +75,8 @@ class TestLocalTimesAreConvertedToUtc:
         )
         assert as_utc(result["start_time"]) == local_tomorrow.astimezone(timezone.utc)
 
-    def test_bare_clock_time_is_converted_from_local_to_utc(self, handler, berlin_tz):
+    @pytest.mark.usefixtures("berlin_tz")
+    def test_bare_clock_time_is_converted_from_local_to_utc(self, handler):
         result = handler._parse_downtime_times("03:00", "", 60)
 
         start = as_utc(result["start_time"])
@@ -135,8 +136,10 @@ class TestOutputContract:
         for start in ["now", "+1h", "22:00 tomorrow", "2026-12-24T22:00:00Z", "in 2 hours", "garbage"]:
             result = handler._parse_downtime_times(start, "", 30)
             for key in ("start_time", "end_time"):
-                # Raises ValueError if the format ever drifts.
-                datetime.strptime(result[key], "%Y-%m-%dT%H:%M:%SZ")
+                # Raises ValueError if the format ever drifts. The parsed value
+                # itself is never used, only the fact that parsing succeeded, so
+                # the naive-datetime result this produces is fine here.
+                datetime.strptime(result[key], "%Y-%m-%dT%H:%M:%SZ")  # noqa: DTZ007
 
 
 class TestParseNaturalTime:
@@ -151,3 +154,96 @@ class TestParseNaturalTime:
 
         assert result is not None
         assert result.tzinfo is not None, "naive datetimes silently become wrong once formatted as UTC"
+
+
+class TestIsDowntimeActiveIsTotal:
+    """_is_downtime_active promises 'False otherwise' -- it must never raise.
+
+    A malformed downtime record (start_time present but null) must not blow
+    up the comprehensions in _get_host_downtime_status / has_host_level_downtime;
+    it should just be treated as inactive.
+    """
+
+    def test_null_start_time_returns_false_instead_of_raising(self, handler):
+        # extensions.get("start_time", 0) does NOT fall back to 0 here: the key
+        # is present with a None value, so this is exactly the shape a
+        # malformed CheckMK downtime record can take.
+        downtime = {"extensions": {"start_time": None, "end_time": 9999999999.0}}
+
+        assert handler._is_downtime_active(downtime, 1700000000.0) is False
+
+    def test_null_end_time_returns_false_instead_of_raising(self, handler):
+        downtime = {"extensions": {"start_time": 0.0, "end_time": None}}
+
+        assert handler._is_downtime_active(downtime, 1700000000.0) is False
+
+    def test_active_downtime_returns_true(self, handler):
+        downtime = {"extensions": {"start_time": 1000.0, "end_time": 2000.0}}
+
+        assert handler._is_downtime_active(downtime, 1500.0) is True
+
+    def test_expired_downtime_returns_false(self, handler):
+        downtime = {"extensions": {"start_time": 1000.0, "end_time": 2000.0}}
+
+        assert handler._is_downtime_active(downtime, 2500.0) is False
+
+
+class TestHasHostLevelDowntimeIsTotal:
+    """has_host_level_downtime must also never raise -- same TRY300 defect."""
+
+    @pytest.mark.asyncio
+    async def test_one_malformed_record_does_not_raise(self, handler, mock_checkmk_client):
+        mock_checkmk_client.get.return_value = {
+            "success": True,
+            "data": {
+                "value": [
+                    {"extensions": {"start_time": None, "end_time": 9999999999.0}},
+                ]
+            },
+        }
+
+        result = await handler.has_host_level_downtime("test-host")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_malformed_record_does_not_hide_a_real_active_downtime(self, handler, mock_checkmk_client):
+        now = datetime.now(timezone.utc).timestamp()
+        mock_checkmk_client.get.return_value = {
+            "success": True,
+            "data": {
+                "value": [
+                    {"extensions": {"start_time": None, "end_time": 9999999999.0}},
+                    {"extensions": {"start_time": now - 100, "end_time": now + 100}},
+                ]
+            },
+        }
+
+        result = await handler.has_host_level_downtime("test-host")
+
+        assert result is True
+
+
+class TestGetHostDowntimeStatusSkipsMalformedRecords:
+    """One malformed downtime must not turn the whole status lookup into an error."""
+
+    @pytest.mark.asyncio
+    async def test_malformed_host_downtime_is_skipped_not_fatal(self, handler, mock_checkmk_client):
+        now = datetime.now(timezone.utc).timestamp()
+        good_downtime = {"id": 1, "extensions": {"start_time": now - 100, "end_time": now + 100}}
+        bad_downtime = {"id": 2, "extensions": {"start_time": None, "end_time": now + 100}}
+
+        def fake_get(_path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            query = params.get("query", "") if params else ""
+            if '"is_service", "right": "0"' in query:
+                return {"success": True, "data": {"value": [good_downtime, bad_downtime]}}
+            return {"success": True, "data": {"value": []}}
+
+        mock_checkmk_client.get.side_effect = fake_get
+
+        status = await handler._get_host_downtime_status("test-host")
+
+        assert "error" not in status
+        assert status["has_host_downtime"] is True
+        assert status["host_downtime_count"] == 1
+        assert status["active_host_downtimes"] == [good_downtime]

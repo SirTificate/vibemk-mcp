@@ -2,7 +2,7 @@
 Service groups management handlers for CheckMK integration
 """
 
-import json
+import re
 from typing import Any, Dict, List, Optional
 
 from api.exceptions import CheckMKError, CheckMKNotFoundError
@@ -17,29 +17,28 @@ class ServiceGroupHandler(BaseHandler):
         try:
             if tool_name == "vibemk_create_service_group":
                 return await self._create_service_group(arguments)
-            elif tool_name == "vibemk_list_service_groups":
+            if tool_name == "vibemk_list_service_groups":
                 return await self._list_service_groups(arguments)
-            elif tool_name == "vibemk_get_service_group":
+            if tool_name == "vibemk_get_service_group":
                 return await self._get_service_group(arguments)
-            elif tool_name == "vibemk_update_service_group":
+            if tool_name == "vibemk_update_service_group":
                 return await self._update_service_group(arguments)
-            elif tool_name == "vibemk_delete_service_group":
+            if tool_name == "vibemk_delete_service_group":
                 return await self._delete_service_group(arguments)
-            elif tool_name == "vibemk_bulk_create_service_groups":
+            if tool_name == "vibemk_bulk_create_service_groups":
                 return await self._bulk_create_service_groups(arguments)
-            elif tool_name == "vibemk_bulk_update_service_groups":
+            if tool_name == "vibemk_bulk_update_service_groups":
                 return await self._bulk_update_service_groups(arguments)
-            elif tool_name == "vibemk_bulk_delete_service_groups":
+            if tool_name == "vibemk_bulk_delete_service_groups":
                 return await self._bulk_delete_service_groups(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' not supported by service group handler")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' not supported by service group handler")
 
         except CheckMKNotFoundError as e:
             return self.error_response("Service group not found", str(e))
         except CheckMKError as e:
             return self.error_response("CheckMK API error", str(e))
         except Exception as e:
-            return self.error_response("Operation failed", f"Unexpected error: {str(e)}")
+            return self.error_response("Operation failed", f"Unexpected error: {e!s}")
 
     async def _create_service_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create a single service group"""
@@ -88,13 +87,12 @@ class ServiceGroupHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            error_details = result.get("data", {})
-            return self.error_response(
-                "Service group creation failed", f"Could not create service group '{name}': {error_details}"
-            )
+        error_details = result.get("data", {})
+        return self.error_response(
+            "Service group creation failed", f"Could not create service group '{name}': {error_details}"
+        )
 
-    async def _list_service_groups(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _list_service_groups(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """List all service groups"""
         result = self.client.get("domain-types/service_group_config/collections/all")
 
@@ -138,10 +136,10 @@ class ServiceGroupHandler(BaseHandler):
         group_data = result.get("data", {})
         extensions = group_data.get("extensions", {})
 
-        response_text = f"📋 **Service Group Details**\n\n"
+        response_text = "📋 **Service Group Details**\n\n"
         response_text += f"**Name:** {name}\n"
         response_text += f"**Alias:** {extensions.get('alias', 'No alias')}\n"
-        response_text += f"**Type:** Service Group Configuration\n\n"
+        response_text += "**Type:** Service Group Configuration\n\n"
 
         # Show links if available
         links = group_data.get("links", [])
@@ -152,7 +150,7 @@ class ServiceGroupHandler(BaseHandler):
                 if rel in ["update", "delete"]:
                     response_text += f"• {rel.title()}\n"
 
-        response_text += f"\n💡 Use 'update_service_group' or 'delete_service_group' to modify this group"
+        response_text += "\n💡 Use 'update_service_group' or 'delete_service_group' to modify this group"
 
         return [{"type": "text", "text": response_text}]
 
@@ -201,11 +199,10 @@ class ServiceGroupHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            error_details = result.get("data", {})
-            return self.error_response(
-                "Service group update failed", f"Could not update service group '{name}': {error_details}"
-            )
+        error_details = result.get("data", {})
+        return self.error_response(
+            "Service group update failed", f"Could not update service group '{name}': {error_details}"
+        )
 
     async def _delete_service_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a service group"""
@@ -235,23 +232,16 @@ class ServiceGroupHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            error_details = result.get("data", {})
-            return self.error_response(
-                "Service group deletion failed", f"Could not delete service group '{name}': {error_details}"
-            )
+        error_details = result.get("data", {})
+        return self.error_response(
+            "Service group deletion failed", f"Could not delete service group '{name}': {error_details}"
+        )
 
-    async def _bulk_create_service_groups(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Bulk create multiple service groups"""
-        entries = arguments.get("entries", [])
+    def _validate_bulk_create_entries(self, entries: List[Any]) -> Optional[List[Dict[str, Any]]]:
+        """Validate entries for bulk creation.
 
-        if not entries:
-            return self.error_response("Missing parameter", "entries list is required")
-
-        if not isinstance(entries, list):
-            return self.error_response("Invalid parameter", "entries must be a list")
-
-        # Validate all entries
+        Returns an error response if any entry is invalid, otherwise None.
+        """
         for i, entry in enumerate(entries):
             if not isinstance(entry, dict):
                 return self.error_response("Invalid entry", f"Entry {i+1} must be a dictionary")
@@ -267,27 +257,58 @@ class ServiceGroupHandler(BaseHandler):
                     "Invalid name", f"Entry {i+1}: Service group name '{entry['name']}' contains invalid characters"
                 )
 
+        return None
+
+    async def _bulk_create_service_groups(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Bulk create multiple service groups"""
+        entries = arguments.get("entries", [])
+
+        if not entries:
+            return self.error_response("Missing parameter", "entries list is required")
+
+        if not isinstance(entries, list):
+            return self.error_response("Invalid parameter", "entries must be a list")
+
+        entry_error = self._validate_bulk_create_entries(entries)
+        if entry_error is not None:
+            return entry_error
+
         data = {"entries": entries}
 
         result = self.client.post("domain-types/service_group_config/actions/bulk-create/invoke", data=data)
 
         if result.get("success"):
             created_count = len(entries)
-            group_names = [entry["name"] for entry in entries]
 
-            response_text = f"✅ **Bulk Service Groups Created Successfully**\n\n"
+            response_text = "✅ **Bulk Service Groups Created Successfully**\n\n"
             response_text += f"**Created:** {created_count} service groups\n\n"
             response_text += "📋 **Created Groups:**\n"
 
             for entry in entries:
                 response_text += f"• {entry['name']} ({entry['alias']})\n"
 
-            response_text += f"\n⚠️ **Remember to activate changes!**"
+            response_text += "\n⚠️ **Remember to activate changes!**"
 
             return [{"type": "text", "text": response_text}]
-        else:
-            error_details = result.get("data", {})
-            return self.error_response("Bulk creation failed", f"Could not create service groups: {error_details}")
+        error_details = result.get("data", {})
+        return self.error_response("Bulk creation failed", f"Could not create service groups: {error_details}")
+
+    def _validate_bulk_update_entries(self, entries: List[Any]) -> Optional[List[Dict[str, Any]]]:
+        """Validate entries for bulk update.
+
+        Returns an error response if any entry is invalid, otherwise None.
+        """
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                return self.error_response("Invalid entry", f"Entry {i+1} must be a dictionary")
+
+            if not entry.get("name"):
+                return self.error_response("Invalid entry", f"Entry {i+1} is missing 'name'")
+
+            if not entry.get("attributes") or not entry["attributes"].get("alias"):
+                return self.error_response("Invalid entry", f"Entry {i+1} is missing 'attributes.alias'")
+
+        return None
 
     async def _bulk_update_service_groups(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Bulk update multiple service groups"""
@@ -299,16 +320,9 @@ class ServiceGroupHandler(BaseHandler):
         if not isinstance(entries, list):
             return self.error_response("Invalid parameter", "entries must be a list")
 
-        # Validate all entries
-        for i, entry in enumerate(entries):
-            if not isinstance(entry, dict):
-                return self.error_response("Invalid entry", f"Entry {i+1} must be a dictionary")
-
-            if not entry.get("name"):
-                return self.error_response("Invalid entry", f"Entry {i+1} is missing 'name'")
-
-            if not entry.get("attributes") or not entry["attributes"].get("alias"):
-                return self.error_response("Invalid entry", f"Entry {i+1} is missing 'attributes.alias'")
+        entry_error = self._validate_bulk_update_entries(entries)
+        if entry_error is not None:
+            return entry_error
 
         data = {"entries": entries}
 
@@ -317,7 +331,7 @@ class ServiceGroupHandler(BaseHandler):
         if result.get("success"):
             updated_count = len(entries)
 
-            response_text = f"✅ **Bulk Service Groups Updated Successfully**\n\n"
+            response_text = "✅ **Bulk Service Groups Updated Successfully**\n\n"
             response_text += f"**Updated:** {updated_count} service groups\n\n"
             response_text += "📋 **Updated Groups:**\n"
 
@@ -325,12 +339,11 @@ class ServiceGroupHandler(BaseHandler):
                 alias = entry["attributes"]["alias"]
                 response_text += f"• {entry['name']} → {alias}\n"
 
-            response_text += f"\n⚠️ **Remember to activate changes!**"
+            response_text += "\n⚠️ **Remember to activate changes!**"
 
             return [{"type": "text", "text": response_text}]
-        else:
-            error_details = result.get("data", {})
-            return self.error_response("Bulk update failed", f"Could not update service groups: {error_details}")
+        error_details = result.get("data", {})
+        return self.error_response("Bulk update failed", f"Could not update service groups: {error_details}")
 
     async def _bulk_delete_service_groups(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Bulk delete multiple service groups"""
@@ -357,26 +370,23 @@ class ServiceGroupHandler(BaseHandler):
         if result.get("success"):
             deleted_count = len(entries)
 
-            response_text = f"✅ **Bulk Service Groups Deleted Successfully**\n\n"
+            response_text = "✅ **Bulk Service Groups Deleted Successfully**\n\n"
             response_text += f"**Deleted:** {deleted_count} service groups\n\n"
             response_text += "📋 **Deleted Groups:**\n"
 
             for entry in entries:
                 response_text += f"• {entry}\n"
 
-            response_text += f"\n⚠️ **Remember to activate changes!**"
+            response_text += "\n⚠️ **Remember to activate changes!**"
 
             return [{"type": "text", "text": response_text}]
-        else:
-            error_details = result.get("data", {})
-            return self.error_response("Bulk deletion failed", f"Could not delete service groups: {error_details}")
+        error_details = result.get("data", {})
+        return self.error_response("Bulk deletion failed", f"Could not delete service groups: {error_details}")
 
     def _validate_service_group_name(self, name: str) -> bool:
         """Validate service group name format"""
         if not name:
             return False
-
-        import re
 
         # CheckMK service group name pattern: letters, numbers, hyphens, underscores
         pattern = r"^[a-zA-Z0-9._-]+$"

@@ -9,9 +9,9 @@ from handlers.services import ServiceHandler
 
 __all__ = [
     "BaseHandler",
+    "ConfigurationHandler",
     "ConnectionHandler",
     "HostHandler",
-    "ServiceHandler",
     "MonitoringHandler",
-    "ConfigurationHandler",
+    "ServiceHandler",
 ]

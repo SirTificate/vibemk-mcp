@@ -5,7 +5,8 @@ Connection and diagnostics handlers
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List
+from http.client import IncompleteRead
+from typing import Any, Dict, List, Optional
 
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
@@ -19,29 +20,33 @@ class ConnectionHandler(BaseHandler):
 
         try:
             if tool_name == "vibemk_debug_checkmk_connection":
-                return await self._debug_connection()
+                response = await self._debug_connection()
             elif tool_name == "vibemk_debug_url_detection":
-                return await self._debug_url_detection()
+                response = await self._debug_url_detection()
             elif tool_name == "vibemk_test_direct_url":
-                return await self._test_direct_url(arguments.get("test_url"))
+                response = await self._test_direct_url(arguments.get("test_url"))
             elif tool_name == "vibemk_test_all_endpoints":
-                return await self._test_all_endpoints()
+                response = await self._test_all_endpoints()
             elif tool_name == "vibemk_get_checkmk_version":
-                return await self._get_version()
+                response = await self._get_version()
             else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+                response = self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
+        else:
+            return response
 
     async def _debug_connection(self) -> List[Dict[str, Any]]:
         """Debug CheckMK connection"""
         try:
             result = self.client.get("version")
-
+        except Exception as e:
+            return self.error_response("Connection Failed", f"Error: {e}")
+        else:
             if result.get("success"):
                 data = result["data"]
                 return [
@@ -59,11 +64,8 @@ class ConnectionHandler(BaseHandler):
                         ),
                     }
                 ]
-            else:
-                return self.error_response("Connection Failed", f"API Base URL: {self.client.api_base_url}")
 
-        except Exception as e:
-            return self.error_response("Connection Failed", f"Error: {str(e)}")
+            return self.error_response("Connection Failed", f"API Base URL: {self.client.api_base_url}")
 
     async def _debug_url_detection(self) -> List[Dict[str, Any]]:
         """Show URL detection debug information"""
@@ -82,15 +84,18 @@ class ConnectionHandler(BaseHandler):
             }
         ]
 
-    async def _test_direct_url(self, test_url: str) -> List[Dict[str, Any]]:
+    async def _test_direct_url(self, test_url: Optional[str]) -> List[Dict[str, Any]]:
         """Test a specific URL directly"""
         if not test_url:
             return self.error_response("Missing URL", "test_url parameter is required")
 
         try:
+            # Reaches into the client's SSL context so this raw urlopen() call gets the
+            # exact same TLS behaviour (verify_ssl, custom CA, ...) as requests made
+            # through the client's own request path.
             req = urllib.request.Request(test_url, headers=self.client.headers)
             with urllib.request.urlopen(
-                req, context=self.client._ssl_context, timeout=self.client.config.timeout
+                req, context=self.client._ssl_context, timeout=self.client.config.timeout  # noqa: SLF001
             ) as response:
                 response_data = response.read().decode()
 
@@ -113,8 +118,17 @@ class ConnectionHandler(BaseHandler):
 
         except urllib.error.HTTPError as e:
             try:
+                # e.read() is a live socket read (HTTPError only raises on the
+                # status line; the body is fetched here), so this must also
+                # cover transport failures, not just a malformed/missing body.
                 error_data = json.loads(e.read().decode())
-            except:
+            except (ValueError, AttributeError, OSError, IncompleteRead):
+                # ValueError covers a non-JSON error body (json.JSONDecodeError is a
+                # subclass); AttributeError covers HTTPError.read() when the response
+                # has no body to read (e.fp is None), which real error responses hit.
+                # OSError/IncompleteRead cover a socket failure while reading the
+                # body (ConnectionResetError, TimeoutError, ssl.SSLError are all
+                # OSError subclasses; IncompleteRead is not).
                 error_data = {"error": e.reason}
 
             return [
@@ -130,7 +144,12 @@ class ConnectionHandler(BaseHandler):
             ]
 
         except Exception as e:
-            return [{"type": "text", "text": (f"❌ **Request Failed**\n\n" f"URL: {test_url}\n" f"Error: {str(e)}")}]
+            return [
+                {
+                    "type": "text",
+                    "text": (f"❌ **Request Failed**\n\nURL: {test_url}\nError: {e}"),
+                }
+            ]
 
     async def _test_all_endpoints(self) -> List[Dict[str, Any]]:
         """Test all major API endpoints"""
@@ -154,9 +173,9 @@ class ConnectionHandler(BaseHandler):
                 status = "✅" if result.get("success") else "❌"
                 results.append(f"{status} {endpoint} - {desc} (HTTP {result.get('status', 'unknown')})")
             except Exception as e:
-                results.append(f"❌ {endpoint} - {desc} (Error: {str(e)})")
+                results.append(f"❌ {endpoint} - {desc} (Error: {e})")
 
-        return [{"type": "text", "text": f"🧪 **API Endpoint Test Results**\n\n" + "\n".join(results)}]
+        return [{"type": "text", "text": "🧪 **API Endpoint Test Results**\n\n" + "\n".join(results)}]
 
     async def _get_version(self) -> List[Dict[str, Any]]:
         """Get CheckMK version information"""
@@ -176,5 +195,5 @@ class ConnectionHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Version Error", "Could not retrieve version information")
+
+        return self.error_response("Version Error", "Could not retrieve version information")

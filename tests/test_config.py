@@ -61,9 +61,8 @@ class TestCheckMKConfig:
 
     def test_config_missing_required_fields(self):
         """Test configuration with missing required fields"""
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="CHECKMK_SERVER_URL"):
-                CheckMKConfig.from_env()
+        with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError, match="CHECKMK_SERVER_URL"):
+            CheckMKConfig.from_env()
 
     def test_config_invalid_boolean(self):
         """Test configuration with invalid boolean value"""
@@ -161,6 +160,30 @@ class TestMCPConfig:
         # Test invalid version
         with pytest.raises(ValueError, match="version cannot be empty"):
             MCPConfig(name="test", version="")
+
+
+class TestProtocolNegotiation:
+    """The MCP spec requires answering with a version the server supports."""
+
+    def test_a_supported_version_is_accepted(self):
+        config = MCPConfig()
+
+        assert config.negotiate_protocol_version("2024-11-05") == "2024-11-05"
+
+    def test_an_unsupported_version_falls_back_to_the_preferred_one(self):
+        config = MCPConfig()
+
+        assert config.negotiate_protocol_version("1999-01-01-BOGUS") == config.protocol_version
+
+    def test_a_missing_version_falls_back_to_the_preferred_one(self):
+        config = MCPConfig()
+
+        assert config.negotiate_protocol_version(None) == config.protocol_version
+
+    def test_the_preferred_version_is_supported(self):
+        config = MCPConfig()
+
+        assert config.protocol_version in config.supported_protocol_versions
 
 
 class TestConfigurationIntegration:

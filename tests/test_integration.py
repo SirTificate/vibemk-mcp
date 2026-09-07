@@ -5,12 +5,13 @@ These tests require a running CheckMK instance and can be run optionally.
 Set INTEGRATION_TESTS=true and provide real CheckMK credentials to run.
 """
 
+import asyncio
 import os
-from unittest.mock import patch
 
 import pytest
 
 from api import CheckMKClient
+from api.exceptions import CheckMKAuthenticationError
 from config import CheckMKConfig
 from mcp.server import CheckMKMCPServer
 
@@ -46,7 +47,7 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_real_connection(self, real_client):
         """Test connection to real CheckMK instance"""
-        result = await real_client.get("version")
+        result = real_client.get("version")
 
         assert result["success"] is True
         assert "data" in result
@@ -56,7 +57,7 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_real_hosts_list(self, real_client):
         """Test listing real hosts"""
-        result = await real_client.get("domain-types/host/collections/all")
+        result = real_client.get("domain-types/host/collections/all")
 
         assert result["success"] is True
         assert "data" in result
@@ -83,6 +84,7 @@ class TestIntegration:
         tools_request = {"jsonrpc": "2.0", "id": "integration-1", "method": "tools/list"}
 
         tools_response = await server.handle_request(tools_request)
+        assert tools_response is not None
         assert tools_response["jsonrpc"] == "2.0"
         assert "result" in tools_response
         assert len(tools_response["result"]["tools"]) > 0
@@ -96,6 +98,7 @@ class TestIntegration:
         }
 
         connection_response = await server.handle_request(connection_request)
+        assert connection_response is not None
         assert "result" in connection_response
         assert len(connection_response["result"]["content"]) > 0
 
@@ -112,7 +115,7 @@ class TestIntegration:
             pytest.skip("TEST_HOST_NAME not provided for host operations test")
 
         # Test host status
-        host_status = await real_client.get(f"objects/host/{test_host}", params={"columns": ["state", "plugin_output"]})
+        host_status = real_client.get(f"objects/host/{test_host}", params={"columns": ["state", "plugin_output"]})
 
         if host_status["success"]:
             # Host exists, test status retrieval
@@ -130,7 +133,7 @@ class TestIntegration:
             pytest.skip("TEST_HOST_NAME not provided for service discovery test")
 
         # Test service discovery
-        discovery_result = await real_client.post(f"objects/host/{test_host}/actions/discover_services/invoke")
+        discovery_result = real_client.post(f"objects/host/{test_host}/actions/discover_services/invoke")
 
         # Discovery might succeed or fail depending on host state
         # Both are valid outcomes for this test
@@ -141,7 +144,7 @@ class TestIntegration:
     async def test_error_handling_with_invalid_host(self, real_client):
         """Test error handling with invalid host"""
         # Try to get status of non-existent host
-        result = await real_client.get("objects/host/definitely-not-existing-host-12345")
+        result = real_client.get("objects/host/definitely-not-existing-host-12345")
 
         # Should get 404 error
         assert result["success"] is False
@@ -161,10 +164,8 @@ class TestIntegration:
         invalid_client = CheckMKClient(invalid_config)
 
         # Should get authentication error
-        from api.exceptions import CheckMKAuthenticationError
-
         with pytest.raises(CheckMKAuthenticationError):
-            await invalid_client.get("version")
+            invalid_client.get("version")
 
 
 class TestLoadTesting:
@@ -173,13 +174,10 @@ class TestLoadTesting:
     @pytest.mark.asyncio
     async def test_concurrent_requests_load(self, real_client):
         """Test handling multiple concurrent requests"""
-        import asyncio
-
-        # Create multiple concurrent version requests
-        tasks = []
-        for i in range(10):
-            task = real_client.get("version")
-            tasks.append(task)
+        # real_client.get is synchronous, so genuine concurrency needs a
+        # thread pool rather than plain coroutines.
+        loop = asyncio.get_running_loop()
+        tasks = [loop.run_in_executor(None, real_client.get, "version") for _ in range(10)]
 
         # Execute all requests concurrently
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -198,9 +196,9 @@ class TestLoadTesting:
         """Test rapid sequential requests"""
         # Make 20 rapid sequential requests
         success_count = 0
-        for i in range(20):
+        for _ in range(20):
             try:
-                result = await real_client.get("version")
+                result = real_client.get("version")
                 if result.get("success"):
                     success_count += 1
             except Exception:

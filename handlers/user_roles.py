@@ -2,10 +2,14 @@
 User roles management handlers for CheckMK user role operations
 """
 
+import http
 from typing import Any, Dict, List
 
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
+
+_BUILTIN_ROLE_IDS = ("admin", "user", "guest")
+_MAX_PERMISSIONS_SHOWN = 10
 
 
 class UserRolesHandler(BaseHandler):
@@ -16,23 +20,25 @@ class UserRolesHandler(BaseHandler):
 
         try:
             if tool_name == "vibemk_list_user_roles":
-                return await self._list_user_roles(arguments)
+                response = await self._list_user_roles(arguments)
             elif tool_name == "vibemk_show_user_role":
-                return await self._show_user_role(arguments)
+                response = await self._show_user_role(arguments)
             elif tool_name == "vibemk_create_user_role":
-                return await self._create_user_role(arguments)
+                response = await self._create_user_role(arguments)
             elif tool_name == "vibemk_update_user_role":
-                return await self._update_user_role(arguments)
+                response = await self._update_user_role(arguments)
             elif tool_name == "vibemk_delete_user_role":
-                return await self._delete_user_role(arguments)
+                response = await self._delete_user_role(arguments)
             else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+                response = self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
+        else:
+            return response
 
     async def _list_user_roles(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """List all available user roles"""
@@ -42,6 +48,9 @@ class UserRolesHandler(BaseHandler):
 
         try:
             result = self.client.get("domain-types/user_role/collections/all")
+        except CheckMKError as e:
+            return self._list_roles_error(e)
+        else:
             roles = result["data"].get("value", [])
 
             if not roles:
@@ -63,17 +72,17 @@ class UserRolesHandler(BaseHandler):
                 }
             ]
 
-        except CheckMKError as e:
-            http_status = getattr(e, "status_code", 0)
+    def _list_roles_error(self, error: CheckMKError) -> List[Dict[str, Any]]:
+        """Map a CheckMKError from listing user roles to a response, by HTTP status"""
+        http_status = getattr(error, "status_code", 0)
 
-            if http_status == 403:
-                return self.error_response(
-                    "Permission Denied", "Access denied. You need 'wato.users' permission for user role management."
-                )
-            elif http_status == 406:
-                return self.error_response("Accept Header Error", "API cannot satisfy the requested content type.")
-            else:
-                return self.error_response("Failed to list user roles", str(e))
+        if http_status == http.HTTPStatus.FORBIDDEN:
+            return self.error_response(
+                "Permission Denied", "Access denied. You need 'wato.users' permission for user role management."
+            )
+        if http_status == http.HTTPStatus.NOT_ACCEPTABLE:
+            return self.error_response("Accept Header Error", "API cannot satisfy the requested content type.")
+        return self.error_response("Failed to list user roles", str(error))
 
     async def _show_user_role(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Show detailed information about a specific user role"""
@@ -82,12 +91,14 @@ class UserRolesHandler(BaseHandler):
         if not role_id:
             return self.error_response("Missing parameter", "role_id is required")
 
-        self.logger.debug(f"Showing user role: {role_id}")
+        self.logger.debug("Showing user role: %s", role_id)
 
         try:
             result = self.client.get(f"objects/user_role/{role_id}")
+        except CheckMKError as e:
+            return self._show_role_error(e, role_id)
+        else:
             role_data = result["data"]
-
             return [
                 {
                     "type": "text",
@@ -95,19 +106,19 @@ class UserRolesHandler(BaseHandler):
                 }
             ]
 
-        except CheckMKError as e:
-            http_status = getattr(e, "status_code", 0)
+    def _show_role_error(self, error: CheckMKError, role_id: str) -> List[Dict[str, Any]]:
+        """Map a CheckMKError from showing a user role to a response, by HTTP status"""
+        http_status = getattr(error, "status_code", 0)
 
-            if http_status == 403:
-                return self.error_response(
-                    "Permission Denied", "Access denied. You need 'wato.users' permission for user role management."
-                )
-            elif http_status == 404:
-                return self.error_response(
-                    "Role Not Found", f"User role '{role_id}' not found. Check the role ID and try again."
-                )
-            else:
-                return self.error_response("Failed to retrieve user role", str(e))
+        if http_status == http.HTTPStatus.FORBIDDEN:
+            return self.error_response(
+                "Permission Denied", "Access denied. You need 'wato.users' permission for user role management."
+            )
+        if http_status == http.HTTPStatus.NOT_FOUND:
+            return self.error_response(
+                "Role Not Found", f"User role '{role_id}' not found. Check the role ID and try again."
+            )
+        return self.error_response("Failed to retrieve user role", str(error))
 
     async def _create_user_role(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create/clone a new user role from an existing one"""
@@ -118,7 +129,7 @@ class UserRolesHandler(BaseHandler):
         if not base_role_id or not new_role_id:
             return self.error_response("Missing parameters", "base_role_id and new_role_id are required")
 
-        self.logger.debug(f"Creating user role '{new_role_id}' from '{base_role_id}'")
+        self.logger.debug("Creating user role '%s' from '%s'", new_role_id, base_role_id)
 
         # Prepare the request data
         data = {
@@ -130,8 +141,10 @@ class UserRolesHandler(BaseHandler):
             data["new_alias"] = new_alias
 
         try:
-            result = self.client.post("domain-types/user_role/collections/all", data=data)
-
+            self.client.post("domain-types/user_role/collections/all", data=data)
+        except CheckMKError as e:
+            return self._create_role_error(e, new_role_id)
+        else:
             return [
                 {
                     "type": "text",
@@ -151,25 +164,25 @@ class UserRolesHandler(BaseHandler):
                 }
             ]
 
-        except CheckMKError as e:
-            http_status = getattr(e, "status_code", 0)
-            error_data = getattr(e, "error_data", {})
+    def _create_role_error(self, error: CheckMKError, new_role_id: str) -> List[Dict[str, Any]]:
+        """Map a CheckMKError from creating a user role to a response, by HTTP status"""
+        http_status = getattr(error, "status_code", 0)
+        error_data = getattr(error, "error_data", {})
 
-            if http_status == 400:
-                return self.error_response(
-                    "Invalid Parameters", f"Invalid role parameters: {error_data.get('detail', str(e))}"
-                )
-            elif http_status == 403:
-                return self.error_response(
-                    "Permission Denied",
-                    "Access denied. You need 'wato.edit' and 'wato.users' permissions for role creation.",
-                )
-            elif http_status == 409:
-                return self.error_response(
-                    "Role Already Exists", f"Role '{new_role_id}' already exists. Choose a different role ID."
-                )
-            else:
-                return self.error_response("Failed to create user role", str(e))
+        if http_status == http.HTTPStatus.BAD_REQUEST:
+            return self.error_response(
+                "Invalid Parameters", f"Invalid role parameters: {error_data.get('detail', str(error))}"
+            )
+        if http_status == http.HTTPStatus.FORBIDDEN:
+            return self.error_response(
+                "Permission Denied",
+                "Access denied. You need 'wato.edit' and 'wato.users' permissions for role creation.",
+            )
+        if http_status == http.HTTPStatus.CONFLICT:
+            return self.error_response(
+                "Role Already Exists", f"Role '{new_role_id}' already exists. Choose a different role ID."
+            )
+        return self.error_response("Failed to create user role", str(error))
 
     async def _update_user_role(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update an existing user role"""
@@ -180,7 +193,7 @@ class UserRolesHandler(BaseHandler):
         if not role_id:
             return self.error_response("Missing parameter", "role_id is required")
 
-        self.logger.debug(f"Updating user role: {role_id}")
+        self.logger.debug("Updating user role: %s", role_id)
 
         # Prepare the request data
         data = {}
@@ -195,8 +208,12 @@ class UserRolesHandler(BaseHandler):
             )
 
         try:
-            result = self.client.put(f"objects/user_role/{role_id}", data=data)
-
+            self.client.put(f"objects/user_role/{role_id}", data=data)
+        except CheckMKError as e:
+            return self._update_role_error(e, role_id)
+        else:
+            alias_line = f"• **Alias**: {alias}" if alias else ""
+            permissions_line = f"• **Permissions**: Updated {len(permissions)} permissions" if permissions else ""
             return [
                 {
                     "type": "text",
@@ -204,30 +221,30 @@ class UserRolesHandler(BaseHandler):
                         f"✅ **User Role Updated Successfully**\n\n"
                         f"**Updated Role**: `{role_id}`\n\n"
                         f"**Changes Applied:**\n"
-                        f"{'• **Alias**: ' + alias if alias else ''}\n"
-                        f"{'• **Permissions**: Updated ' + str(len(permissions)) + ' permissions' if permissions else ''}\n\n"
+                        f"{alias_line}\n"
+                        f"{permissions_line}\n\n"
                         f"💡 **Use `vibemk_show_user_role` to view the updated role details**"
                     ),
                 }
             ]
 
-        except CheckMKError as e:
-            http_status = getattr(e, "status_code", 0)
-            error_data = getattr(e, "error_data", {})
+    def _update_role_error(self, error: CheckMKError, role_id: str) -> List[Dict[str, Any]]:
+        """Map a CheckMKError from updating a user role to a response, by HTTP status"""
+        http_status = getattr(error, "status_code", 0)
+        error_data = getattr(error, "error_data", {})
 
-            if http_status == 400:
-                return self.error_response(
-                    "Invalid Parameters", f"Invalid role parameters: {error_data.get('detail', str(e))}"
-                )
-            elif http_status == 403:
-                return self.error_response(
-                    "Permission Denied",
-                    "Access denied. You need 'wato.edit' and 'wato.users' permissions for role updates.",
-                )
-            elif http_status == 404:
-                return self.error_response("Role Not Found", f"User role '{role_id}' not found.")
-            else:
-                return self.error_response("Failed to update user role", str(e))
+        if http_status == http.HTTPStatus.BAD_REQUEST:
+            return self.error_response(
+                "Invalid Parameters", f"Invalid role parameters: {error_data.get('detail', str(error))}"
+            )
+        if http_status == http.HTTPStatus.FORBIDDEN:
+            return self.error_response(
+                "Permission Denied",
+                "Access denied. You need 'wato.edit' and 'wato.users' permissions for role updates.",
+            )
+        if http_status == http.HTTPStatus.NOT_FOUND:
+            return self.error_response("Role Not Found", f"User role '{role_id}' not found.")
+        return self.error_response("Failed to update user role", str(error))
 
     async def _delete_user_role(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a custom user role"""
@@ -237,18 +254,19 @@ class UserRolesHandler(BaseHandler):
             return self.error_response("Missing parameter", "role_id is required")
 
         # Check if it's a built-in role
-        builtin_roles = ["admin", "user", "guest"]
-        if role_id in builtin_roles:
+        if role_id in _BUILTIN_ROLE_IDS:
             return self.error_response(
                 "Cannot Delete Built-in Role",
-                f"The role '{role_id}' is a built-in role and cannot be deleted. " "Only custom roles can be deleted.",
+                f"The role '{role_id}' is a built-in role and cannot be deleted. Only custom roles can be deleted.",
             )
 
-        self.logger.debug(f"Deleting user role: {role_id}")
+        self.logger.debug("Deleting user role: %s", role_id)
 
         try:
-            result = self.client.delete(f"objects/user_role/{role_id}")
-
+            self.client.delete(f"objects/user_role/{role_id}")
+        except CheckMKError as e:
+            return self._delete_role_error(e, role_id)
+        else:
             return [
                 {
                     "type": "text",
@@ -264,24 +282,24 @@ class UserRolesHandler(BaseHandler):
                 }
             ]
 
-        except CheckMKError as e:
-            http_status = getattr(e, "status_code", 0)
+    def _delete_role_error(self, error: CheckMKError, role_id: str) -> List[Dict[str, Any]]:
+        """Map a CheckMKError from deleting a user role to a response, by HTTP status"""
+        http_status = getattr(error, "status_code", 0)
 
-            if http_status == 400:
-                return self.error_response(
-                    "Cannot Delete Role", f"Role '{role_id}' cannot be deleted. It may still be in use by users."
-                )
-            elif http_status == 403:
-                return self.error_response(
-                    "Permission Denied",
-                    "Access denied. You need 'wato.edit' and 'wato.users' permissions for role deletion.",
-                )
-            elif http_status == 404:
-                return self.error_response("Role Not Found", f"User role '{role_id}' not found.")
-            else:
-                return self.error_response("Failed to delete user role", str(e))
+        if http_status == http.HTTPStatus.BAD_REQUEST:
+            return self.error_response(
+                "Cannot Delete Role", f"Role '{role_id}' cannot be deleted. It may still be in use by users."
+            )
+        if http_status == http.HTTPStatus.FORBIDDEN:
+            return self.error_response(
+                "Permission Denied",
+                "Access denied. You need 'wato.edit' and 'wato.users' permissions for role deletion.",
+            )
+        if http_status == http.HTTPStatus.NOT_FOUND:
+            return self.error_response("Role Not Found", f"User role '{role_id}' not found.")
+        return self.error_response("Failed to delete user role", str(error))
 
-    def _format_roles_list(self, roles: List[Dict], show_builtin: bool) -> str:
+    def _format_roles_list(self, roles: List[Dict[str, Any]], show_builtin: bool) -> str:
         """Format user roles list for display"""
         response = "👥 **User Roles**\n\n"
 
@@ -298,7 +316,7 @@ class UserRolesHandler(BaseHandler):
             permissions = extensions.get("permissions", [])
             role_info = {"id": role_id, "alias": alias, "builtin": builtin, "permissions_count": len(permissions)}
 
-            if builtin or role_id in ["admin", "user", "guest"]:
+            if builtin or role_id in _BUILTIN_ROLE_IDS:
                 builtin_roles.append(role_info)
             else:
                 custom_roles.append(role_info)
@@ -327,12 +345,12 @@ class UserRolesHandler(BaseHandler):
 
         return response
 
-    def _format_role_details(self, role_id: str, role_data: Dict) -> str:
+    def _format_role_details(self, role_id: str, role_data: Dict[str, Any]) -> str:
         """Format detailed role information"""
         extensions = role_data.get("extensions", {})
 
         alias = extensions.get("alias", role_id)
-        builtin = extensions.get("builtin", False) or role_id in ["admin", "user", "guest"]
+        builtin = extensions.get("builtin", False) or role_id in _BUILTIN_ROLE_IDS
         permissions = extensions.get("permissions", {})
 
         response = f"👥 **User Role Details: {role_id}**\n\n"
@@ -342,13 +360,13 @@ class UserRolesHandler(BaseHandler):
         else:
             response += "🎨 **Custom Role**\n\n"
 
-        response += f"**Role Information:**\n"
+        response += "**Role Information:**\n"
         response += f"• **ID**: `{role_id}`\n"
         response += f"• **Alias**: {alias}\n"
         response += f"• **Type**: {'Built-in' if builtin else 'Custom'}\n"
         response += f"• **Permissions**: {len(permissions)} total\n\n"
 
-        if role_id in ["admin", "user", "guest"]:
+        if role_id in _BUILTIN_ROLE_IDS:
             response += f"**Description:**\n{self._get_role_description(role_id)}\n\n"
 
         # Show key permissions (first 10 for brevity)
@@ -356,25 +374,25 @@ class UserRolesHandler(BaseHandler):
             response += "**Key Permissions** (showing first 10):\n"
             if isinstance(permissions, list):
                 # Permissions is a list of permission names
-                for i, perm_id in enumerate(permissions[:10]):
+                for perm_id in permissions[:_MAX_PERMISSIONS_SHOWN]:
                     response += f"✅ `{perm_id}`\n"
 
-                if len(permissions) > 10:
-                    response += f"... and {len(permissions) - 10} more permissions\n"
+                if len(permissions) > _MAX_PERMISSIONS_SHOWN:
+                    response += f"... and {len(permissions) - _MAX_PERMISSIONS_SHOWN} more permissions\n"
             else:
                 # Permissions is a dictionary (fallback for older API versions)
-                for i, (perm_id, enabled) in enumerate(list(permissions.items())[:10]):
+                for perm_id, enabled in list(permissions.items())[:_MAX_PERMISSIONS_SHOWN]:
                     status = "✅" if enabled else "❌"
                     response += f"{status} `{perm_id}`\n"
 
-                if len(permissions) > 10:
-                    response += f"... and {len(permissions) - 10} more permissions\n"
+                if len(permissions) > _MAX_PERMISSIONS_SHOWN:
+                    response += f"... and {len(permissions) - _MAX_PERMISSIONS_SHOWN} more permissions\n"
 
-        response += f"\n**Available Operations:**\n"
+        response += "\n**Available Operations:**\n"
         if not builtin:
-            response += f"• `vibemk_update_user_role` - Modify this role\n"
-            response += f"• `vibemk_delete_user_role` - Delete this role\n"
-        response += f"• `vibemk_create_user_role` - Clone this role to create a new one\n"
+            response += "• `vibemk_update_user_role` - Modify this role\n"
+            response += "• `vibemk_delete_user_role` - Delete this role\n"
+        response += "• `vibemk_create_user_role` - Clone this role to create a new one\n"
 
         return response
 

@@ -2,14 +2,14 @@
 Tests for CheckMK API Client
 """
 
-import json
 import urllib.error
+from email.message import Message
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from api.client import CheckMKClient
-from api.exceptions import CheckMKAPIError, CheckMKAuthenticationError, CheckMKConnectionError
+from api.exceptions import CheckMKAPIError, CheckMKAuthenticationError, CheckMKConnectionError, CheckMKError
 
 
 class TestCheckMKClient:
@@ -52,8 +52,12 @@ class TestCheckMKClient:
         """Test authentication error handling"""
         with patch("urllib.request.urlopen") as mock_urlopen:
             # Mock 401 authentication error for the actual request
-            error = urllib.error.HTTPError(url="test", code=401, msg="Unauthorized", hdrs={}, fp=None)
-            error.read = MagicMock(return_value=b'{"title": "Unauthorized", "detail": "Invalid credentials"}')
+            error = urllib.error.HTTPError(url="test", code=401, msg="Unauthorized", hdrs=Message(), fp=None)
+            # Replacing .read() is the point of the test double; strict mode's
+            # objection to overwriting a method is intentional here.
+            error.read = MagicMock(  # type: ignore[method-assign]
+                return_value=b'{"title": "Unauthorized", "detail": "Invalid credentials"}'
+            )
 
             mock_urlopen.side_effect = error
 
@@ -87,7 +91,7 @@ class TestCheckMKClient:
             mock_success_response.__enter__.return_value = mock_success_response
             mock_success_response.__exit__.return_value = False
 
-            mock_error = urllib.error.HTTPError("test", 500, "Server Error", {}, None)
+            mock_error = urllib.error.HTTPError("test", 500, "Server Error", Message(), None)
 
             mock_urlopen.side_effect = [
                 mock_error,  # First request fails
@@ -100,6 +104,54 @@ class TestCheckMKClient:
             result = client.get("version")
             assert result["success"] is True
             assert mock_urlopen.call_count == 3  # 1 original + 2 retries
+
+    def test_error_body_socket_failure_raises_checkmk_error_not_raw_oserror(self, mock_config):
+        """error.read() is a live socket read of the HTTP error body, not a
+        parse of already-buffered data: urlopen raises HTTPError as soon as
+        the status line comes back, and the body is fetched here. A transport
+        failure during that read (ConnectionResetError, a OSError subclass)
+        must still be turned into a CheckMKError, not escape as a raw OSError
+        that no handler's `except CheckMKError` would catch.
+        """
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            error = urllib.error.HTTPError(url="test", code=401, msg="Unauthorized", hdrs=Message(), fp=None)
+            # Replacing .read() is the point of the test double; strict mode's
+            # objection to overwriting a method is intentional here.
+            error.read = MagicMock(side_effect=ConnectionResetError("Connection reset by peer"))  # type: ignore[method-assign]
+
+            mock_urlopen.side_effect = error
+
+            client = CheckMKClient(mock_config, skip_url_detection=True)
+
+            with pytest.raises(CheckMKError):
+                client.get("version")
+
+    def test_5xx_retry_still_runs_when_error_body_read_fails(self, mock_config):
+        """A ConnectionResetError while reading the error body must not skip
+        the 5xx retry that sits right below the read -- that transient-error
+        retry is precisely the case a reset socket represents.
+        """
+        mock_config.max_retries = 1
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_success_response = MagicMock()
+            mock_success_response.status = 200
+            mock_success_response.read.return_value = b'{"success": true, "data": {}}'
+            mock_success_response.__enter__.return_value = mock_success_response
+            mock_success_response.__exit__.return_value = False
+
+            mock_error = urllib.error.HTTPError(
+                url="test", code=503, msg="Service Unavailable", hdrs=Message(), fp=None
+            )
+            mock_error.read = MagicMock(side_effect=ConnectionResetError("Connection reset by peer"))  # type: ignore[method-assign]
+
+            mock_urlopen.side_effect = [mock_error, mock_success_response]
+
+            client = CheckMKClient(mock_config, skip_url_detection=True)
+            result = client.get("version")
+
+            assert result["success"] is True
+            assert mock_urlopen.call_count == 2  # 1 original + 1 retry
 
     def test_url_encoding(self, mock_checkmk_client):
         """Test proper URL encoding for parameters"""

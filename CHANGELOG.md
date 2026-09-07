@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- `mcp/server.py` split into `transport.py` (stdio I/O), `dispatch.py` (JSON-RPC) and
+  `registry.py` (tool-to-handler table); the server is now wiring only. The test
+  scaffolding that made production behaviour depend on whether the code was being
+  tested is gone
+- `initialize` answers with a protocol version the server supports instead of echoing
+  the client's
+- Metric time windows are built in UTC, so they no longer depend on the server host's
+  timezone matching the CheckMK site's
+
+### Added
+- mypy and ruff run in CI at their configured strictness, behind an exception list that
+  a test keeps one-way
+
 ## [0.4.0] - 2026-09-07
 
 First release of the maintained continuation at

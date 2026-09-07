@@ -2,7 +2,7 @@
 Specialized handler for host group and contact group rules
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
@@ -17,31 +17,49 @@ class HostGroupRulesHandler(BaseHandler):
         try:
             if tool_name == "vibemk_find_host_grouping_rulesets":
                 return await self._find_host_grouping_rulesets(arguments)
-            elif tool_name == "vibemk_create_host_contactgroup_rule":
+            if tool_name == "vibemk_create_host_contactgroup_rule":
                 return await self._create_host_contactgroup_rule(arguments)
-            elif tool_name == "vibemk_create_host_hostgroup_rule":
+            if tool_name == "vibemk_create_host_hostgroup_rule":
                 return await self._create_host_hostgroup_rule(arguments)
-            elif tool_name == "vibemk_get_example_rule_structures":
+            if tool_name == "vibemk_get_example_rule_structures":
                 return await self._get_example_rule_structures(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
-    async def _find_host_grouping_rulesets(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _find_host_grouping_rulesets(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Find all rulesets related to host grouping and contact assignment"""
 
-        # Search for relevant rulesets
+        results = ["🔍 **Host Grouping and Contact Assignment Rulesets**\\n"]
+
+        all_rulesets, search_errors = self._search_grouping_rulesets()
+        results.extend(search_errors)
+
+        for header, bucket in self._categorize_rulesets(all_rulesets):
+            if bucket:
+                results.append(header)
+                for ruleset_id, info in bucket.items():
+                    results.append(f"   • **{ruleset_id}**: {info['title']}")
+
+        results.append(f"\\n📊 **Summary:** Found {len(all_rulesets)} relevant rulesets")
+
+        return [{"type": "text", "text": "\\n".join(results)}]
+
+    def _search_grouping_rulesets(self) -> Tuple[Dict[str, Dict[str, str]], List[str]]:
+        """Search rulesets for host-grouping-related terms.
+
+        Returns the matching rulesets keyed by id, plus any per-search-term error
+        messages. This mirrors the original inline try/except exactly: an error
+        raised while searching or filtering for one term is recorded and the loop
+        moves on to the next term, rather than aborting the whole search.
+        """
         search_terms = ["contact", "group", "host", "notification", "assignment"]
-
-        results = []
-        results.append("🔍 **Host Grouping and Contact Assignment Rulesets**\\n")
-
-        all_rulesets = {}
+        all_rulesets: Dict[str, Dict[str, str]] = {}
+        errors: List[str] = []
 
         for search_term in search_terms:
             try:
@@ -66,13 +84,19 @@ class HostGroupRulesHandler(BaseHandler):
                                     "search_term": search_term,
                                 }
             except Exception as e:
-                results.append(f"Search for '{search_term}' failed: {e}")
+                errors.append(f"Search for '{search_term}' failed: {e}")
 
-        # Categorize found rulesets
-        contact_rules = {}
-        host_group_rules = {}
-        notification_rules = {}
-        other_rules = {}
+        return all_rulesets, errors
+
+    @staticmethod
+    def _categorize_rulesets(
+        all_rulesets: Dict[str, Dict[str, str]],
+    ) -> List[Tuple[str, Dict[str, Dict[str, str]]]]:
+        """Group found rulesets into the four display buckets, in display order."""
+        contact_rules: Dict[str, Dict[str, str]] = {}
+        host_group_rules: Dict[str, Dict[str, str]] = {}
+        notification_rules: Dict[str, Dict[str, str]] = {}
+        other_rules: Dict[str, Dict[str, str]] = {}
 
         for ruleset_id, info in all_rulesets.items():
             if "contact" in ruleset_id.lower():
@@ -84,30 +108,12 @@ class HostGroupRulesHandler(BaseHandler):
             else:
                 other_rules[ruleset_id] = info
 
-        # Format results
-        if contact_rules:
-            results.append("\\n📞 **Contact Group Assignment Rules:**")
-            for ruleset_id, info in contact_rules.items():
-                results.append(f"   • **{ruleset_id}**: {info['title']}")
-
-        if host_group_rules:
-            results.append("\\n🏠 **Host Group Assignment Rules:**")
-            for ruleset_id, info in host_group_rules.items():
-                results.append(f"   • **{ruleset_id}**: {info['title']}")
-
-        if notification_rules:
-            results.append("\\n📨 **Notification Rules:**")
-            for ruleset_id, info in notification_rules.items():
-                results.append(f"   • **{ruleset_id}**: {info['title']}")
-
-        if other_rules:
-            results.append("\\n🔧 **Other Related Rules:**")
-            for ruleset_id, info in other_rules.items():
-                results.append(f"   • **{ruleset_id}**: {info['title']}")
-
-        results.append(f"\\n📊 **Summary:** Found {len(all_rulesets)} relevant rulesets")
-
-        return [{"type": "text", "text": "\\n".join(results)}]
+        return [
+            ("\\n📞 **Contact Group Assignment Rules:**", contact_rules),
+            ("\\n🏠 **Host Group Assignment Rules:**", host_group_rules),
+            ("\\n📨 **Notification Rules:**", notification_rules),
+            ("\\n🔧 **Other Related Rules:**", other_rules),
+        ]
 
     async def _create_host_contactgroup_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create a rule to assign contact groups to hosts using the corrected format"""
@@ -159,6 +165,7 @@ class HostGroupRulesHandler(BaseHandler):
 
             if result.get("success"):
                 rule_id = result["data"].get("id", "unknown")
+                conditions_text = host_conditions if host_conditions else "None (applies to all hosts)"
                 return [
                     {
                         "type": "text",
@@ -169,27 +176,26 @@ class HostGroupRulesHandler(BaseHandler):
                             f"Contact Groups: {contact_groups}\\n"
                             f"Folder: {folder}\\n"
                             f"Comment: {comment}\\n\\n"
-                            f"📝 **Conditions:** {host_conditions if host_conditions else 'None (applies to all hosts)'}\\n\\n"
+                            f"📝 **Conditions:** {conditions_text}\\n\\n"
                             f"⚠️ **Remember to activate changes!**"
                         ),
                     }
                 ]
-            else:
-                error_data = result.get("data", {})
-                return [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"❌ **Rule Creation Failed**\\n\\n"
-                            f"Ruleset: {working_ruleset}\\n"
-                            f"Error: {error_data.get('title', 'Unknown error')}\\n"
-                            f"Details: {error_data.get('detail', '')}\\n\\n"
-                            f"**Debug - Rule Data:** {rule_data}"
-                        ),
-                    }
-                ]
+            error_data = result.get("data", {})
+            return [
+                {
+                    "type": "text",
+                    "text": (
+                        f"❌ **Rule Creation Failed**\\n\\n"
+                        f"Ruleset: {working_ruleset}\\n"
+                        f"Error: {error_data.get('title', 'Unknown error')}\\n"
+                        f"Details: {error_data.get('detail', '')}\\n\\n"
+                        f"**Debug - Rule Data:** {rule_data}"
+                    ),
+                }
+            ]
         except Exception as e:
-            return self.error_response("Rule creation failed", f"Could not create contact group rule: {str(e)}")
+            return self.error_response("Rule creation failed", f"Could not create contact group rule: {e!s}")
 
     async def _create_host_hostgroup_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create a rule to assign hosts to host groups"""
@@ -220,14 +226,14 @@ class HostGroupRulesHandler(BaseHandler):
                 {
                     "type": "text",
                     "text": (
-                        f"❌ **Host Group Ruleset Not Found**\\n\\n"
-                        f"Could not find a working ruleset for host group assignment.\\n\\n"
-                        f"**Tried rulesets:**\\n"
+                        "❌ **Host Group Ruleset Not Found**\\n\\n"
+                        "Could not find a working ruleset for host group assignment.\\n\\n"
+                        "**Tried rulesets:**\\n"
                         + "\\n".join([f"• {rs}" for rs in hostgroup_ruleset_candidates])
                         + "\\n\\n"
-                        f"**Recommendation:**\\n"
-                        f"1. Use 'find_host_grouping_rulesets' to find available rulesets\\n"
-                        f"2. Check existing host group rules in CheckMK GUI"
+                        "**Recommendation:**\\n"
+                        "1. Use 'find_host_grouping_rulesets' to find available rulesets\\n"
+                        "2. Check existing host group rules in CheckMK GUI"
                     ),
                 }
             ]
@@ -248,6 +254,7 @@ class HostGroupRulesHandler(BaseHandler):
             result = self.client.post("domain-types/rule/collections/all", data=rule_data)
 
             if result.get("success"):
+                conditions_text = host_conditions if host_conditions else "None (applies to all hosts)"
                 return [
                     {
                         "type": "text",
@@ -257,138 +264,132 @@ class HostGroupRulesHandler(BaseHandler):
                             f"Host Groups: {', '.join(host_groups)}\\n"
                             f"Folder: {folder}\\n"
                             f"Comment: {comment}\\n\\n"
-                            f"📝 **Conditions:** {host_conditions if host_conditions else 'None (applies to all hosts)'}\\n\\n"
+                            f"📝 **Conditions:** {conditions_text}\\n\\n"
                             f"⚠️ **Remember to activate changes!**"
                         ),
                     }
                 ]
-            else:
-                error_data = result.get("data", {})
-                return [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"❌ **Rule Creation Failed**\\n\\n"
-                            f"Ruleset: {working_ruleset}\\n"
-                            f"Error: {error_data.get('title', 'Unknown error')}\\n"
-                            f"Details: {error_data.get('detail', '')}\\n\\n"
-                            f"**Rule Data:** {rule_data}"
-                        ),
-                    }
-                ]
+            error_data = result.get("data", {})
+            return [
+                {
+                    "type": "text",
+                    "text": (
+                        f"❌ **Rule Creation Failed**\\n\\n"
+                        f"Ruleset: {working_ruleset}\\n"
+                        f"Error: {error_data.get('title', 'Unknown error')}\\n"
+                        f"Details: {error_data.get('detail', '')}\\n\\n"
+                        f"**Rule Data:** {rule_data}"
+                    ),
+                }
+            ]
         except Exception as e:
-            return self.error_response("Rule creation failed", f"Could not create host group rule: {str(e)}")
+            return self.error_response("Rule creation failed", f"Could not create host group rule: {e!s}")
 
-    async def _get_example_rule_structures(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_example_rule_structures(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Show example rule structures for host grouping"""
 
-        examples = []
-
-        examples.append("📚 **Example Rule Structures for Host Grouping**\\n")
-
-        examples.append("\\n🔧 **1. Host Contact Group Assignment (Swagger Format)**")
-        examples.append("```json")
-        examples.append("{")
-        examples.append('  "extensions": {')
-        examples.append('    "ruleset": "host_contactgroups",')
-        examples.append('    "folder": "/",')
-        examples.append('    "properties": {')
-        examples.append('      "comment": "Critical hosts to admin teams"')
-        examples.append("    },")
-        examples.append('    "value_raw": ["admins", "network-team"],')
-        examples.append('    "conditions": {')
-        examples.append('      "host_tags": [')
-        examples.append("        {")
-        examples.append('          "key": "criticality",')
-        examples.append('          "operator": "is",')
-        examples.append('          "value": "critical"')
-        examples.append("        }")
-        examples.append("      ]")
-        examples.append("    }")
-        examples.append("  }")
-        examples.append("}")
-        examples.append("```")
-
-        examples.append("\\n🏠 **2. Host Group Assignment (Swagger Format)**")
-        examples.append("```json")
-        examples.append("{")
-        examples.append('  "extensions": {')
-        examples.append('    "ruleset": "host_groups",')
-        examples.append('    "folder": "/",')
-        examples.append('    "properties": {')
-        examples.append('      "comment": "Database servers to appropriate groups"')
-        examples.append("    },")
-        examples.append('    "value_raw": ["database-servers", "production"],')
-        examples.append('    "conditions": {')
-        examples.append('      "host_name": {')
-        examples.append('        "match_on": ["db.*"],')
-        examples.append('        "operator": "match_regex"')
-        examples.append("      }")
-        examples.append("    }")
-        examples.append("  }")
-        examples.append("}")
-        examples.append("```")
-
-        examples.append("\\n🔍 **3. Advanced Host Conditions (Swagger Format)**")
-        examples.append("```json")
-        examples.append("{")
-        examples.append('  "extensions": {')
-        examples.append('    "ruleset": "host_contactgroups",')
-        examples.append('    "folder": "/",')
-        examples.append('    "value_raw": ["web-admins"],')
-        examples.append('    "conditions": {')
-        examples.append('      "host_name": {')
-        examples.append('        "match_on": ["web[0-9]+"],')
-        examples.append('        "operator": "match_regex"')
-        examples.append("      },")
-        examples.append('      "host_tags": [')
-        examples.append("        {")
-        examples.append('          "key": "environment",')
-        examples.append('          "operator": "is",')
-        examples.append('          "value": "production"')
-        examples.append("        },")
-        examples.append("        {")
-        examples.append('          "key": "location",')
-        examples.append('          "operator": "is",')
-        examples.append('          "value": "datacenter-1"')
-        examples.append("        }")
-        examples.append("      ],")
-        examples.append('      "host_label_groups": [')
-        examples.append("        {")
-        examples.append('          "label_group": [')
-        examples.append("            {")
-        examples.append('              "operator": "and",')
-        examples.append('              "label": "application:wordpress"')
-        examples.append("            }")
-        examples.append("          ]")
-        examples.append("        }")
-        examples.append("      ]")
-        examples.append("    }")
-        examples.append("  }")
-        examples.append("}")
-        examples.append("```")
-
-        examples.append("\\n💡 **4. Simple All-Hosts Rule (Swagger Format)**")
-        examples.append("```json")
-        examples.append("{")
-        examples.append('  "extensions": {')
-        examples.append('    "ruleset": "host_contactgroups",')
-        examples.append('    "folder": "/",')
-        examples.append('    "properties": {')
-        examples.append('      "comment": "Default contact group for all hosts"')
-        examples.append("    },")
-        examples.append('    "value_raw": ["monitoring-team"]')
-        examples.append("  }")
-        examples.append("}")
-        examples.append("```")
-
-        examples.append("\\n🎯 **Usage Tips (Updated for Swagger Format):**")
-        examples.append("• All rule data must be under `extensions` object")
-        examples.append("• Use `conditions` with proper operator format (match_on, operator)")
-        examples.append("• `value_raw` contains the actual rule values (contact groups, host groups)")
-        examples.append("• Empty conditions = rule applies to all hosts")
-        examples.append("• Multiple groups can be assigned in one rule")
-        examples.append("• Use `folder_index` for rule positioning (0 = top)")
-        examples.append("• Remember to activate changes after creating rules")
+        examples = [
+            "📚 **Example Rule Structures for Host Grouping**\\n",
+            "\\n🔧 **1. Host Contact Group Assignment (Swagger Format)**",
+            "```json",
+            "{",
+            '  "extensions": {',
+            '    "ruleset": "host_contactgroups",',
+            '    "folder": "/",',
+            '    "properties": {',
+            '      "comment": "Critical hosts to admin teams"',
+            "    },",
+            '    "value_raw": ["admins", "network-team"],',
+            '    "conditions": {',
+            '      "host_tags": [',
+            "        {",
+            '          "key": "criticality",',
+            '          "operator": "is",',
+            '          "value": "critical"',
+            "        }",
+            "      ]",
+            "    }",
+            "  }",
+            "}",
+            "```",
+            "\\n🏠 **2. Host Group Assignment (Swagger Format)**",
+            "```json",
+            "{",
+            '  "extensions": {',
+            '    "ruleset": "host_groups",',
+            '    "folder": "/",',
+            '    "properties": {',
+            '      "comment": "Database servers to appropriate groups"',
+            "    },",
+            '    "value_raw": ["database-servers", "production"],',
+            '    "conditions": {',
+            '      "host_name": {',
+            '        "match_on": ["db.*"],',
+            '        "operator": "match_regex"',
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "```",
+            "\\n🔍 **3. Advanced Host Conditions (Swagger Format)**",
+            "```json",
+            "{",
+            '  "extensions": {',
+            '    "ruleset": "host_contactgroups",',
+            '    "folder": "/",',
+            '    "value_raw": ["web-admins"],',
+            '    "conditions": {',
+            '      "host_name": {',
+            '        "match_on": ["web[0-9]+"],',
+            '        "operator": "match_regex"',
+            "      },",
+            '      "host_tags": [',
+            "        {",
+            '          "key": "environment",',
+            '          "operator": "is",',
+            '          "value": "production"',
+            "        },",
+            "        {",
+            '          "key": "location",',
+            '          "operator": "is",',
+            '          "value": "datacenter-1"',
+            "        }",
+            "      ],",
+            '      "host_label_groups": [',
+            "        {",
+            '          "label_group": [',
+            "            {",
+            '              "operator": "and",',
+            '              "label": "application:wordpress"',
+            "            }",
+            "          ]",
+            "        }",
+            "      ]",
+            "    }",
+            "  }",
+            "}",
+            "```",
+            "\\n💡 **4. Simple All-Hosts Rule (Swagger Format)**",
+            "```json",
+            "{",
+            '  "extensions": {',
+            '    "ruleset": "host_contactgroups",',
+            '    "folder": "/",',
+            '    "properties": {',
+            '      "comment": "Default contact group for all hosts"',
+            "    },",
+            '    "value_raw": ["monitoring-team"]',
+            "  }",
+            "}",
+            "```",
+            "\\n🎯 **Usage Tips (Updated for Swagger Format):**",
+            "• All rule data must be under `extensions` object",
+            "• Use `conditions` with proper operator format (match_on, operator)",
+            "• `value_raw` contains the actual rule values (contact groups, host groups)",
+            "• Empty conditions = rule applies to all hosts",
+            "• Multiple groups can be assigned in one rule",
+            "• Use `folder_index` for rule positioning (0 = top)",
+            "• Remember to activate changes after creating rules",
+        ]
 
         return [{"type": "text", "text": "\\n".join(examples)}]

@@ -2,8 +2,7 @@
 Pytest configuration and shared fixtures for vibeMK tests
 """
 
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -37,11 +36,13 @@ def mock_checkmk_client(mock_config):
     # Skip URL detection for testing to avoid consuming mock responses
     client = CheckMKClient(mock_config, skip_url_detection=True)
 
-    # Mock HTTP methods
-    client.get = MagicMock()
-    client.post = MagicMock()
-    client.put = MagicMock()
-    client.delete = MagicMock()
+    # Mock HTTP methods. Replacing them is the fixture's whole purpose, so the
+    # method-assign that strict mode objects to here is intentional, not an
+    # accident to fix.
+    client.get = MagicMock()  # type: ignore[method-assign]
+    client.post = MagicMock()  # type: ignore[method-assign]
+    client.put = MagicMock()  # type: ignore[method-assign]
+    client.delete = MagicMock()  # type: ignore[method-assign]
 
     return client
 

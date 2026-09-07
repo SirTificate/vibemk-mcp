@@ -16,23 +16,25 @@ class TimePeriodsHandler(BaseHandler):
 
         try:
             if tool_name == "vibemk_get_timeperiods":
-                return await self._get_timeperiods(arguments)
+                response = await self._get_timeperiods(arguments)
             elif tool_name == "vibemk_create_timeperiod":
-                return await self._create_timeperiod(arguments)
+                response = await self._create_timeperiod(arguments)
             elif tool_name == "vibemk_update_timeperiod":
-                return await self._update_timeperiod(arguments)
+                response = await self._update_timeperiod(arguments)
             elif tool_name == "vibemk_delete_timeperiod":
-                return await self._delete_timeperiod(arguments)
+                response = await self._delete_timeperiod(arguments)
             else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+                response = self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
+        else:
+            return response
 
-    async def _get_timeperiods(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_timeperiods(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of time periods"""
         result = self.client.get("domain-types/time_period/collections/all")
 
@@ -88,34 +90,34 @@ class TimePeriodsHandler(BaseHandler):
 
         result = self.client.post("domain-types/time_period/collections/all", data=data)
 
-        if result.get("success"):
-            # Format time ranges for display
-            time_display = []
-            for tr in active_time_ranges:
-                day = tr.get("day", "unknown")
-                ranges = tr.get("time_ranges", [])
-                for range_item in ranges:
-                    start = range_item.get("start", "")
-                    end = range_item.get("end", "")
-                    time_display.append(f"{day.capitalize()}: {start}-{end}")
-
-            return [
-                {
-                    "type": "text",
-                    "text": (
-                        f"✅ **Time Period Created Successfully**\n\n"
-                        f"Name: **{name}**\n"
-                        f"Alias: {alias or name}\n"
-                        f"Active time ranges:\n" + "\n".join(f"  • {td}" for td in time_display) + "\n\n"
-                        f"⚠️ **Remember to activate changes!**"
-                    ),
-                }
-            ]
-        else:
+        if not result.get("success"):
             error_msg = result.get("data", {}).get("detail", "Unknown error")
             return self.error_response(
                 "Time period creation failed", f"Could not create time period '{name}': {error_msg}"
             )
+
+        # Format time ranges for display
+        time_display = []
+        for tr in active_time_ranges:
+            day = tr.get("day", "unknown")
+            ranges = tr.get("time_ranges", [])
+            for range_item in ranges:
+                start = range_item.get("start", "")
+                end = range_item.get("end", "")
+                time_display.append(f"{day.capitalize()}: {start}-{end}")
+
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"✅ **Time Period Created Successfully**\n\n"
+                    f"Name: **{name}**\n"
+                    f"Alias: {alias or name}\n"
+                    "Active time ranges:\n" + "\n".join(f"  • {td}" for td in time_display) + "\n\n"
+                    "⚠️ **Remember to activate changes!**"
+                ),
+            }
+        ]
 
     async def _update_timeperiod(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update an existing time period"""
@@ -156,20 +158,20 @@ class TimePeriodsHandler(BaseHandler):
         headers = self._if_match_header(f"objects/time_period/{name}")
         result = self.client.put(f"objects/time_period/{name}", data=data, headers=headers)
 
-        if result.get("success"):
-            return [
-                {
-                    "type": "text",
-                    "text": (
-                        f"✅ **Time Period Updated Successfully**\n\n"
-                        f"Name: {name}\n"
-                        f"Updated fields: {', '.join(data.keys())}\n\n"
-                        f"⚠️ **Remember to activate changes!**"
-                    ),
-                }
-            ]
-        else:
+        if not result.get("success"):
             return self.error_response("Time period update failed", f"Could not update time period '{name}'")
+
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"✅ **Time Period Updated Successfully**\n\n"
+                    f"Name: {name}\n"
+                    f"Updated fields: {', '.join(data.keys())}\n\n"
+                    f"⚠️ **Remember to activate changes!**"
+                ),
+            }
+        ]
 
     async def _delete_timeperiod(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a time period"""
@@ -186,24 +188,24 @@ class TimePeriodsHandler(BaseHandler):
         headers = self._if_match_header(f"objects/time_period/{name}")
         result = self.client.delete(f"objects/time_period/{name}", headers=headers)
 
-        if result.get("success"):
-            return [
-                {
-                    "type": "text",
-                    "text": (
-                        f"✅ **Time Period Deleted Successfully**\n\n"
-                        f"Name: {name}\n\n"
-                        f"📝 **Next Steps:**\n"
-                        f"1️⃣ Use 'get_pending_changes' to review the deletion\n"
-                        f"2️⃣ Use 'activate_changes' to apply the configuration\n\n"
-                        f"💡 **Important:** The time period is only marked for deletion until you activate changes!"
-                    ),
-                }
-            ]
-        else:
+        if not result.get("success"):
             return self.error_response("Time period deletion failed", f"Could not delete time period '{name}'")
 
-    def _validate_time_range(self, time_range: Dict[str, Any]) -> bool:
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"✅ **Time Period Deleted Successfully**\n\n"
+                    f"Name: {name}\n\n"
+                    f"📝 **Next Steps:**\n"
+                    f"1️⃣ Use 'get_pending_changes' to review the deletion\n"
+                    f"2️⃣ Use 'activate_changes' to apply the configuration\n\n"
+                    f"💡 **Important:** The time period is only marked for deletion until you activate changes!"
+                ),
+            }
+        ]
+
+    def _validate_time_range(self, time_range: Any) -> bool:
         """Validate time range structure"""
         if not isinstance(time_range, dict):
             return False
@@ -216,8 +218,4 @@ class TimePeriodsHandler(BaseHandler):
         if not isinstance(ranges, list):
             return False
 
-        for tr in ranges:
-            if not isinstance(tr, dict) or "start" not in tr or "end" not in tr:
-                return False
-
-        return True
+        return all(isinstance(tr, dict) and "start" in tr and "end" in tr for tr in ranges)

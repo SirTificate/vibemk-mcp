@@ -17,34 +17,33 @@ class UserHandler(BaseHandler):
         try:
             if tool_name == "vibemk_get_users":
                 return await self._get_users(arguments)
-            elif tool_name == "vibemk_create_user":
+            if tool_name == "vibemk_create_user":
                 return await self._create_user(arguments)
-            elif tool_name == "vibemk_update_user":
+            if tool_name == "vibemk_update_user":
                 return await self._update_user(arguments)
-            elif tool_name == "vibemk_delete_user":
+            if tool_name == "vibemk_delete_user":
                 return await self._delete_user(arguments)
-            elif tool_name == "vibemk_get_contact_groups":
+            if tool_name == "vibemk_get_contact_groups":
                 return await self._get_contact_groups(arguments)
-            elif tool_name == "vibemk_create_contact_group":
+            if tool_name == "vibemk_create_contact_group":
                 return await self._create_contact_group(arguments)
-            elif tool_name == "vibemk_update_contact_group":
+            if tool_name == "vibemk_update_contact_group":
                 return await self._update_contact_group(arguments)
-            elif tool_name == "vibemk_delete_contact_group":
+            if tool_name == "vibemk_delete_contact_group":
                 return await self._delete_contact_group(arguments)
-            elif tool_name == "vibemk_add_user_to_group":
+            if tool_name == "vibemk_add_user_to_group":
                 return await self._add_user_to_group(arguments)
-            elif tool_name == "vibemk_remove_user_from_group":
+            if tool_name == "vibemk_remove_user_from_group":
                 return await self._remove_user_from_group(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
-    async def _get_users(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_users(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of CheckMK users"""
         result = self.client.get("domain-types/user_config/collections/all")
 
@@ -100,7 +99,7 @@ class UserHandler(BaseHandler):
         if contactgroups:
             data["contactgroups"] = contactgroups
 
-        self.logger.debug(f"Creating user with data: {data}")
+        self.logger.debug("Creating user with data: %s", data)
         result = self.client.post("domain-types/user_config/collections/all", data=data)
 
         # Enhanced error reporting for debugging
@@ -121,8 +120,7 @@ class UserHandler(BaseHandler):
                         ),
                     }
                 ]
-            else:
-                return self.error_response("User creation failed", f"API Error: {error_details}")
+            return self.error_response("User creation failed", f"API Error: {error_details}")
 
         return [
             {
@@ -181,8 +179,7 @@ class UserHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("User update failed", f"Could not update user '{username}'")
+        return self.error_response("User update failed", f"Could not update user '{username}'")
 
     async def _delete_user(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a CheckMK user"""
@@ -212,10 +209,9 @@ class UserHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("User deletion failed", f"Could not delete user '{username}'")
+        return self.error_response("User deletion failed", f"Could not delete user '{username}'")
 
-    async def _get_contact_groups(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_contact_groups(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of contact groups"""
         result = self.client.get("domain-types/contact_group_config/collections/all")
 
@@ -251,9 +247,9 @@ class UserHandler(BaseHandler):
         # Note: Contact groups don't directly support members in creation
         # Members are managed through user configurations
         if members:
-            self.logger.debug(f"Note: Contact group members ({members}) will need to be set via user management")
+            self.logger.debug("Note: Contact group members (%s) will need to be set via user management", members)
 
-        self.logger.debug(f"Creating contact group with data: {data}")
+        self.logger.debug("Creating contact group with data: %s", data)
         result = self.client.post("domain-types/contact_group_config/collections/all", data=data)
 
         # Enhanced error reporting for debugging
@@ -274,8 +270,7 @@ class UserHandler(BaseHandler):
                         ),
                     }
                 ]
-            else:
-                return self.error_response("Contact group creation failed", f"API Error: {error_details}")
+            return self.error_response("Contact group creation failed", f"API Error: {error_details}")
 
         return [
             {
@@ -311,7 +306,7 @@ class UserHandler(BaseHandler):
 
         # Note: Contact group members are managed through user assignments, not directly
         if members is not None:
-            self.logger.debug(f"Note: Contact group members should be managed via user configurations")
+            self.logger.debug("Note: Contact group members should be managed via user configurations")
 
         if not data:
             return self.error_response("No data to update", "At least alias must be provided")
@@ -331,8 +326,7 @@ class UserHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Contact group update failed", f"Could not update contact group '{name}'")
+        return self.error_response("Contact group update failed", f"Could not update contact group '{name}'")
 
     async def _delete_contact_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete a contact group"""
@@ -362,8 +356,7 @@ class UserHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Contact group deletion failed", f"Could not delete contact group '{name}'")
+        return self.error_response("Contact group deletion failed", f"Could not delete contact group '{name}'")
 
     async def _add_user_to_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Add a user to a contact group"""
@@ -384,7 +377,7 @@ class UserHandler(BaseHandler):
 
         # Add group if not already present
         if group_name not in current_groups:
-            new_groups = current_groups + [group_name]
+            new_groups = [*current_groups, group_name]
 
             # Update user with new contact groups
             update_data = {"contactgroups": new_groups}
@@ -404,20 +397,18 @@ class UserHandler(BaseHandler):
                         ),
                     }
                 ]
-            else:
-                return self.error_response("Failed to add user to group", f"Could not update user '{username}'")
-        else:
-            return [
-                {
-                    "type": "text",
-                    "text": (
-                        f"ℹ️ **User Already in Group**\n\n"
-                        f"Username: {username}\n"
-                        f"Group: {group_name}\n\n"
-                        f"User is already a member of this contact group."
-                    ),
-                }
-            ]
+            return self.error_response("Failed to add user to group", f"Could not update user '{username}'")
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"ℹ️ **User Already in Group**\n\n"
+                    f"Username: {username}\n"
+                    f"Group: {group_name}\n\n"
+                    f"User is already a member of this contact group."
+                ),
+            }
+        ]
 
     async def _remove_user_from_group(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Remove a user from a contact group"""
@@ -458,17 +449,15 @@ class UserHandler(BaseHandler):
                         ),
                     }
                 ]
-            else:
-                return self.error_response("Failed to remove user from group", f"Could not update user '{username}'")
-        else:
-            return [
-                {
-                    "type": "text",
-                    "text": (
-                        f"ℹ️ **User Not in Group**\n\n"
-                        f"Username: {username}\n"
-                        f"Group: {group_name}\n\n"
-                        f"User is not a member of this contact group."
-                    ),
-                }
-            ]
+            return self.error_response("Failed to remove user from group", f"Could not update user '{username}'")
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"ℹ️ **User Not in Group**\n\n"
+                    f"Username: {username}\n"
+                    f"Group: {group_name}\n\n"
+                    f"User is not a member of this contact group."
+                ),
+            }
+        ]
