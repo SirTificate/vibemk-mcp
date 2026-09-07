@@ -66,8 +66,63 @@ target-version = ['py38']
 [tool.ruff]
 line-length = 120
 target-version = "py38"
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "ANN", "B", "A", "C4", "DTZ", "T10", "EXE", "ISC", "ICN", "G", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF"]
 ignore = ["ANN101", "ANN102", "ANN401"]
+
+# Same rule as the mypy list above: this may only shrink.
+[tool.ruff.lint.per-file-ignores]
+"api/__init__.py" = ["RUF022"]
+"api/client.py" = ["ANN001", "ANN202", "ANN204", "ARG002", "B904", "E722", "ERA001", "F401", "G004", "PLR0912", "PLR0913", "PLR0917", "PLR2004", "RET505", "RET506", "RUF010", "TRY003"]
+"api/exceptions.py" = ["ANN204", "PIE790"]
+"checkmk_types/__init__.py" = ["F403", "F405", "RUF022"]
+"checkmk_types/checkmk_types.py" = ["F401"]
+"config/dotenv.py" = ["PLR2004", "SIM102"]
+"config/settings.py" = ["ANN204", "PIE790", "RET505", "TRY003"]
+"handlers/__init__.py" = ["RUF022"]
+"handlers/acknowledgements.py" = ["ANN204", "ARG002", "E501", "E722", "F401", "F541", "G004", "N802", "PIE810", "PLR0911", "PLR0912", "PLR0915", "RET505", "RUF010"]
+"handlers/base.py" = ["PIE790", "PYI041", "RUF001"]
+"handlers/configuration.py" = ["G004", "PLR2004", "RET505", "RUF001"]
+"handlers/connection.py" = ["E722", "F541", "G004", "ISC001", "PLR0911", "RET505", "RUF010", "SLF001"]
+"handlers/debug.py" = ["ARG002", "B007", "E501", "F541", "G004", "PLC0415", "PLR0911", "PLR0912", "PLR0915", "RET505", "RUF010", "RUF019", "SIM108", "SIM118"]
+"handlers/discovery.py" = ["ANN204", "E501", "G004", "ISC004", "PLR2004", "RET505", "RUF010"]
+"handlers/downtimes.py" = ["ANN001", "DTZ001", "DTZ005", "DTZ006", "E501", "F541", "F841", "G004", "PLC0415", "PLR0911", "PLR0912", "PLR0915", "PLR1714", "PLR2004", "PLW2901", "RET505", "RUF001", "RUF013", "SIM102", "SIM110", "TRY002", "TRY003", "TRY300", "TRY301", "TRY400"]
+"handlers/folders.py" = ["G004", "PLR0911", "RET505"]
+"handlers/groups.py" = ["ARG002", "G004", "PLR0911", "RET505"]
+"handlers/host_group_rules.py" = ["ARG002", "E501", "F541", "G004", "PLR0911", "PLR0912", "PLR0915", "RET505", "RUF010"]
+"handlers/hosts.py" = ["ARG002", "E501", "E722", "F401", "F541", "F841", "G004", "PLC0206", "PLC0415", "PLR0911", "PLR0912", "PLR0915", "PLR2004", "RET505", "RUF001", "RUF010", "RUF019", "SIM102", "TRY300", "TRY401"]
+"handlers/metrics.py" = ["E501", "F401", "F541", "F811", "G004", "PLC0415", "PLR0911", "PLR0912", "PLR2004", "RET505", "RUF010", "RUF034"]
+"handlers/monitoring.py" = ["G004", "ISC001", "PLR0911", "RET505", "RUF001", "TRY400"]
+"handlers/notifications.py" = ["G004", "PLC0415", "PLR0911", "RET505"]
+"handlers/passwords.py" = ["ARG002", "G004", "PLR0911", "RET505"]
+"handlers/rules.py" = ["ARG002", "F541", "F841", "G004", "PLR0911", "PLR2004", "RET505"]
+"handlers/rulesets.py" = ["F541", "F841", "G004", "PLR0912", "PLR2004", "RET505", "SIM108"]
+"handlers/service_groups.py" = ["ARG002", "F401", "F541", "F841", "PLC0415", "PLR0911", "RET505", "RUF001", "RUF010"]
+"handlers/services.py" = ["E501", "F841", "G004", "PLC0415", "PLR0911", "PLR0912", "PLR0915", "PLR2004", "RET505", "RUF019"]
+"handlers/tags.py" = ["ARG002", "G004", "PLR0911", "PLR2004", "RET505"]
+"handlers/timeperiods.py" = ["ARG002", "F541", "G004", "PLR0911", "RET505", "SIM110"]
+"handlers/user_roles.py" = ["B007", "E501", "F541", "F841", "G004", "ISC001", "PLR0911", "PLR2004", "RET505", "TRY300"]
+"handlers/users.py" = ["ARG002", "F541", "G004", "PLR0911", "PLR0912", "RET505", "RUF001", "RUF005"]
+"main.py" = ["ANN201", "EXE001", "PLC0415", "SIM105"]
+"mcp/tools.py" = ["E501", "RUF001"]
+"tests/conftest.py" = ["ANN001", "ANN201", "F401"]
+"tests/test_api_client.py" = ["ANN001", "ANN201", "F401", "PLR2004"]
+"tests/test_checkmk_endpoints.py" = ["ANN001", "ANN201"]
+"tests/test_client_transport.py" = ["ANN001", "ANN003", "ANN201", "PLC0415"]
+"tests/test_config.py" = ["ANN201", "PLR2004", "SIM117"]
+"tests/test_dotenv.py" = ["ANN001", "ANN201"]
+"tests/test_etag_locking.py" = ["ANN001", "ANN201", "SLF001"]
+"tests/test_handlers_downtimes.py" = ["ANN001", "ANN201", "ARG002", "DTZ007", "F401", "PLR2004", "SLF001"]
+"tests/test_handlers_hosts.py" = ["ANN001", "ANN201", "F401", "F841"]
+"tests/test_handlers_metrics.py" = ["ANN001", "ANN201", "ARG001", "PT006", "SLF001"]
+"tests/test_handlers_notifications.py" = ["ANN001", "ANN201"]
+"tests/test_integration.py" = ["ANN001", "ANN201", "B007", "F401", "PLC0415", "PLR2004"]
+"tests/test_mcp_server.py" = ["ANN001", "ANN201", "ANN202", "ANN204", "PLR2004", "TRY003"]
+"tests/test_tool_registry.py" = ["ANN001", "ANN201", "PLC0415"]
+"tests/test_transport.py" = ["ANN001", "ANN201", "ANN202", "ARG001", "F401", "PLC0415"]
+"utils/__init__.py" = ["RUF022"]
+"utils/logging.py" = ["PTH103", "PTH110", "PTH120"]
 
 [tool.mypy]
 python_version = "3.9"
@@ -92,6 +147,40 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false  # Allow untyped tests during migration
+
+# Modules not yet type-clean. This list may only shrink: tests/test_lint_ratchet.py
+# fails when an entry is no longer needed. Do not add to it — a module you
+# change must be brought up to the configured strictness.
+[[tool.mypy.overrides]]
+module = [
+    "api.client",
+    "config.dotenv",
+    "config.settings",
+    "handlers.acknowledgements",
+    "handlers.connection",
+    "handlers.debug",
+    "handlers.downtimes",
+    "handlers.hosts",
+    "handlers.metrics",
+    "handlers.rulesets",
+    "handlers.services",
+    "handlers.timeperiods",
+    "handlers.user_roles",
+    "main",
+    "tests.conftest",
+    "tests.test_api_client",
+    "tests.test_checkmk_endpoints",
+    "tests.test_client_transport",
+    "tests.test_dotenv",
+    "tests.test_etag_locking",
+    "tests.test_handlers_hosts",
+    "tests.test_handlers_metrics",
+    "tests.test_handlers_notifications",
+    "tests.test_integration",
+    "tests.test_mcp_server",
+    "tests.test_transport",
+]
+ignore_errors = true
 
 [tool.isort]
 profile = "black"
