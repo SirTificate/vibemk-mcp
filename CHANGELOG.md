@@ -4,19 +4,57 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Both downtime scheduling tools advertised a `recur` parameter the handler never read,
+  so a request for a recurring weekly downtime silently produced a one-off and reported
+  success. The advertised values were wrong too: CheckMK accepts `fixed`, `hour`, `day`,
+  `week`, `second_week`, `fourth_week`, `weekday_start`, `weekday_end` and `day_of_month`,
+  while vibeMK offered `month`, which CheckMK has never had. The tool descriptions now
+  also state that recurring downtimes are an Enterprise and Cloud feature — a Raw site
+  accepts the request and creates a one-off
+- `_is_downtime_active` and `has_host_level_downtime` could raise instead of returning
+  `False`: a `try/except/else` rewrite left their final comparison in the `else`, which
+  the `except` does not cover. A downtime record whose `start_time` is null then turned
+  `vibemk_check_host_downtime_status` into an error for the whole host rather than
+  skipping that record
+- Reading an HTTPError's body is treated as best effort again. It had been narrowed to
+  named exception types twice; both were wrong, because the type varies by Python version
+  (`KeyError` on 3.9, no exception at all on 3.13) and a failure there skipped the retry
+  for transient status codes
+- Four dispatch branches referenced tool names declared nowhere — three in
+  `handlers/debug.py` and one leftover alias in `handlers/discovery.py`
+
 ### Changed
 - `mcp/server.py` split into `transport.py` (stdio I/O), `dispatch.py` (JSON-RPC) and
-  `registry.py` (tool-to-handler table); the server is now wiring only. The test
-  scaffolding that made production behaviour depend on whether the code was being
-  tested is gone
-- `initialize` answers with a protocol version the server supports instead of echoing
-  the client's
+  `registry.py` (tool-to-handler table); the server is now wiring only, 62 lines from 547.
+  The scaffolding that made production behaviour depend on whether the code was under
+  test — it asked `unittest.mock` whether it had been mocked — is gone
+- `initialize` answers with a protocol version the server supports instead of echoing the
+  client's, which claimed support for anything a client cared to name
 - Metric time windows are built in UTC, so they no longer depend on the server host's
-  timezone matching the CheckMK site's
+  timezone matching the CheckMK site's. Measured against 2.4.0p2: a host in UTC against a
+  Europe/Berlin site received a window two hours early
+- `AcknowledgementHandler` and `DiscoveryHandler` inherit `BaseHandler` like the other
+  twenty, so the registry's handler type is honest and both gain the shared helpers
 
 ### Added
-- mypy and ruff run in CI at their configured strictness, behind an exception list that
-  a test keeps one-way
+- mypy and ruff run in CI at their configured strictness. Both were configured and neither
+  ran: the mypy step was an `echo` and ruff was never invoked, so 272 type errors and 1141
+  lint findings had accumulated behind a green build. Modules not yet clean are listed
+  explicitly, and a test fails when an entry stops being necessary, so the list can only
+  shrink
+- Structural guards for the tool catalogue: no duplicate names, no advertised tool without
+  a handler, no handler without a declaration, and no dispatch branch referencing an
+  undeclared tool
+- The suite grew from 43 tests to 171
+
+### Infrastructure
+- Static analysis runs once on a single interpreter with mypy and ruff pinned. Running it
+  across the test matrix meant pip resolved a different mypy per Python version — 1.14 on
+  3.8, 1.19 on 3.9, 2.3 on 3.10 and above — and those versions disagree, so the same tree
+  passed on three matrix entries and failed on a fourth
+- The test matrix installs a `test` extra rather than `dev`, so a pin chosen for a checker
+  cannot constrain which interpreters the suite runs on
 
 ## [0.4.0] - 2026-09-07
 
@@ -44,11 +82,6 @@ unchanged, so existing client configurations keep working.
 - Change activation no longer hand-rolls a urllib request to work around the client's
   missing header support, and takes its ETag from the pending-changes response
 
-### Added
-- Notification rule management: list, show, create, update and delete
-  (`vibemk_*_notification_rule`)
-
-### Fixed
 - Downtime scheduling no longer discards an explicit date: any expression containing a
   time of day was reduced to that time *today*, so a downtime requested for
   `2026-12-24T22:00:00Z` was scheduled for the current day
@@ -69,6 +102,8 @@ unchanged, so existing client configurations keep working.
   advertised version (0.3.9) disagreed with `pyproject.toml` (0.3.10)
 
 ### Added
+- Notification rule management: list, show, create, update and delete
+  (`vibemk_*_notification_rule`)
 - Optional `.env` support, read once at startup before logging is configured; real
   environment variables always take precedence
 - Structural tests covering the tool registry, downtime time parsing, client transport

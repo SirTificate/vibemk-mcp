@@ -89,3 +89,6 @@ pytest.errors
 .claude/agents/
 /tmp/
 .superpowers/
+
+# Personal working notes, deliberately untracked
+OPEN.md
