@@ -143,8 +143,7 @@ class TagsHandler(BaseHandler):
         if not data:
             return self.error_response("No data to update", "At least one field must be provided")
 
-        # Use ETag for optimistic locking
-        headers = {"If-Match": "*"}
+        headers = self._if_match_header(f"objects/host_tag_group/{tag_id}")
         result = self.client.put(f"objects/host_tag_group/{tag_id}", data=data, headers=headers)
 
         if result.get("success"):

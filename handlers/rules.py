@@ -246,8 +246,7 @@ class RulesHandler(BaseHandler):
         if not data:
             return self.error_response("No data to update", "At least one field must be provided")
 
-        # Use ETag for optimistic locking
-        headers = {"If-Match": "*"}
+        headers = self._if_match_header(f"objects/rule/{rule_id}")
         result = self.client.put(f"objects/rule/{rule_id}", data=data, headers=headers)
 
         if result.get("success"):
@@ -308,7 +307,8 @@ class RulesHandler(BaseHandler):
         if target_rule_id:
             data["target_rule"] = target_rule_id
 
-        result = self.client.post(f"objects/rule/{rule_id}/actions/move/invoke", data=data)
+        headers = self._if_match_header(f"objects/rule/{rule_id}")
+        result = self.client.post(f"objects/rule/{rule_id}/actions/move/invoke", data=data, headers=headers)
 
         if result.get("success"):
             return [

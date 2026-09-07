@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Union
 
 from api import CheckMKClient
+from api.exceptions import CheckMKError
 from utils import get_logger
 
 # Type aliases to avoid import conflicts with built-in 'types' module
@@ -27,6 +28,36 @@ class BaseHandler(ABC):
     async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle tool call and return MCP response content"""
         pass
+
+    def _if_match_header(self, endpoint: str) -> Dict[str, str]:
+        """Build an If-Match header from the current ETag of an object.
+
+        CheckMK requires If-Match on the endpoints that modify an existing
+        object and answers 412 when the value is stale — which is the point:
+        it stops two writers from silently overwriting each other. Sending the
+        wildcard instead is accepted but disables that check.
+
+        Falls back to the wildcard when no ETag can be read, so a failed
+        lookup degrades to the previous behaviour rather than blocking a write.
+        """
+        try:
+            current = self.client.get(endpoint)
+        except CheckMKError as error:
+            self.logger.debug("Could not read ETag for %s: %s", endpoint, error)
+            return {"If-Match": "*"}
+        return {"If-Match": self._extract_etag(current)}
+
+    @staticmethod
+    def _extract_etag(response: Dict[str, Any]) -> str:
+        """Read an ETag from a client response, or '*' when there is none.
+
+        CheckMK returns it as an ETag response header; some endpoints also
+        carry it in the object body under extensions.meta_data.
+        """
+        etag = (response.get("headers") or {}).get("ETag")
+        if not etag:
+            etag = response.get("data", {}).get("extensions", {}).get("meta_data", {}).get("etag")
+        return etag or "*"
 
     def success_response(self, message: str, data: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Create success response"""

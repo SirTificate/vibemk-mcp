@@ -113,8 +113,7 @@ class GroupsHandler(BaseHandler):
         if not data:
             return self.error_response("No data to update", "At least one field (alias) must be provided")
 
-        # Use ETag for optimistic locking
-        headers = {"If-Match": "*"}
+        headers = self._if_match_header(f"objects/host_group_config/{name}")
         result = self.client.put(f"objects/host_group_config/{name}", data=data, headers=headers)
 
         if result.get("success"):
@@ -234,8 +233,7 @@ class GroupsHandler(BaseHandler):
         if not data:
             return self.error_response("No data to update", "At least one field (alias) must be provided")
 
-        # Use ETag for optimistic locking
-        headers = {"If-Match": "*"}
+        headers = self._if_match_header(f"objects/service_group_config/{name}")
         result = self.client.put(f"objects/service_group_config/{name}", data=data, headers=headers)
 
         if result.get("success"):

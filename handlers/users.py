@@ -151,7 +151,6 @@ class UserHandler(BaseHandler):
         if not username:
             return self.error_response("Missing parameter", "username is required")
 
-        # First get the current user to get ETag
         current_user_result = self.client.get(f"objects/user_config/{username}")
         if not current_user_result.get("success"):
             return self.error_response("User not found", f"User '{username}' does not exist")
@@ -167,8 +166,7 @@ class UserHandler(BaseHandler):
         if contactgroups is not None:  # Allow empty list to remove all groups
             data["contactgroups"] = contactgroups
 
-        # Use ETag for optimistic locking (use wildcard for simplicity)
-        headers = {"If-Match": "*"}
+        headers = self._if_match_header(f"objects/user_config/{username}")
         result = self.client.put(f"objects/user_config/{username}", data=data, headers=headers)
 
         if result.get("success"):
@@ -318,8 +316,7 @@ class UserHandler(BaseHandler):
         if not data:
             return self.error_response("No data to update", "At least alias must be provided")
 
-        # Use ETag for optimistic locking
-        headers = {"If-Match": "*"}
+        headers = self._if_match_header(f"objects/contact_group_config/{name}")
         result = self.client.put(f"objects/contact_group_config/{name}", data=data, headers=headers)
 
         if result.get("success"):
@@ -391,7 +388,7 @@ class UserHandler(BaseHandler):
 
             # Update user with new contact groups
             update_data = {"contactgroups": new_groups}
-            headers = {"If-Match": "*"}
+            headers = self._if_match_header(f"objects/user_config/{username}")
             result = self.client.put(f"objects/user_config/{username}", data=update_data, headers=headers)
 
             if result.get("success"):
@@ -445,7 +442,7 @@ class UserHandler(BaseHandler):
 
             # Update user with new contact groups
             update_data = {"contactgroups": new_groups}
-            headers = {"If-Match": "*"}
+            headers = self._if_match_header(f"objects/user_config/{username}")
             result = self.client.put(f"objects/user_config/{username}", data=update_data, headers=headers)
 
             if result.get("success"):
