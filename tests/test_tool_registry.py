@@ -68,3 +68,23 @@ def test_every_tool_has_a_usable_schema():
         properties = schema.get("properties", {})
         for required in schema.get("required", []):
             assert required in properties, f"{name} requires '{required}' but never defines it"
+
+
+def test_repository_root_is_not_a_python_package():
+    """The checkout directory must not be importable as a package.
+
+    An __init__.py at the repository root makes pytest treat the checkout
+    directory itself as the root package, which only works while that
+    directory's name happens to be a valid Python identifier. Renaming the
+    repository to anything containing a hyphen then breaks collection of the
+    whole suite with "attempted relative import with no known parent package".
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+
+    assert not (root / "__init__.py").exists(), (
+        "__init__.py at the repository root couples the test suite to the "
+        "checkout directory's name; the importable packages are api, config, "
+        "handlers, mcp, utils and checkmk_types"
+    )
