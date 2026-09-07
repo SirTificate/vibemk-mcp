@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, replace
-from http.client import HTTPMessage, IncompleteRead
+from http.client import HTTPMessage
 from typing import IO, Any, Dict, List, Optional
 
 from api.exceptions import (
@@ -260,12 +260,16 @@ class CheckMKClient:
     ) -> Dict[str, Any]:
         """Handle HTTP errors with appropriate exceptions and retries"""
 
+        # Reading an HTTPError's body is best effort. It is a lazy socket read, so
+        # it can fail transport-wise; the payload need not be JSON; and when urllib
+        # built the error without a file object the stdlib raises a different type
+        # per Python version -- KeyError on 3.9, nothing at all on 3.13. Two
+        # attempts to enumerate the types were both wrong, so this catches broadly
+        # on purpose: a failure here must never preempt the error handling below,
+        # including the retry for transient status codes.
         try:
-            # error.read() is a live socket read (HTTPError only raises on the
-            # status line; the body is fetched here), so it can also fail with
-            # a transport error -- not just a malformed/missing body.
             error_data = json.loads(error.read().decode())
-        except (ValueError, AttributeError, OSError, IncompleteRead):
+        except Exception:  # deliberate, see above
             error_data = {"error": error.reason}
 
         # Retry logic for transient errors (500, 502, 503, 504)
