@@ -87,4 +87,4 @@ recommendations.md
 .gitignore
 pytest.errors
 .claude/agents/
-/tmp/
+/tmp/.superpowers/
