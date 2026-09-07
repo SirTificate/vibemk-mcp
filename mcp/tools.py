@@ -1506,8 +1506,22 @@ def get_downtime_tools() -> List[Dict[str, Any]]:
                     },
                     "recur": {
                         "type": "string",
-                        "description": "Optional recurring pattern: 'hour', 'day', 'week', 'month'",
-                        "enum": ["hour", "day", "week", "month"],
+                        "description": (
+                            "Recurring mode. ENTERPRISE/CLOUD ONLY — on the Raw edition CheckMK "
+                            "accepts the request and creates a one-off downtime instead. "
+                            "'fixed' means non-recurring; a monthly downtime is 'day_of_month'."
+                        ),
+                        "enum": [
+                            "fixed",
+                            "hour",
+                            "day",
+                            "week",
+                            "second_week",
+                            "fourth_week",
+                            "weekday_start",
+                            "weekday_end",
+                            "day_of_month",
+                        ],
                     },
                 },
                 "required": ["host_name"],
@@ -1544,8 +1558,22 @@ def get_downtime_tools() -> List[Dict[str, Any]]:
                     },
                     "recur": {
                         "type": "string",
-                        "description": "Optional recurring pattern: 'hour', 'day', 'week', 'month'",
-                        "enum": ["hour", "day", "week", "month"],
+                        "description": (
+                            "Recurring mode. ENTERPRISE/CLOUD ONLY — on the Raw edition CheckMK "
+                            "accepts the request and creates a one-off downtime instead. "
+                            "'fixed' means non-recurring; a monthly downtime is 'day_of_month'."
+                        ),
+                        "enum": [
+                            "fixed",
+                            "hour",
+                            "day",
+                            "week",
+                            "second_week",
+                            "fourth_week",
+                            "weekday_start",
+                            "weekday_end",
+                            "day_of_month",
+                        ],
                     },
                 },
                 "required": ["host_name", "service_descriptions"],
