@@ -164,7 +164,8 @@ class FolderHandler(BaseHandler):
         if attributes:
             data["attributes"] = attributes
 
-        result = self.client.put(f"objects/folder_config/{encoded_folder}", data=data)
+        headers = self._if_match_header(f"objects/folder_config/{encoded_folder}")
+        result = self.client.put(f"objects/folder_config/{encoded_folder}", data=data, headers=headers)
 
         if result.get("success"):
             return self.success_response(
@@ -188,7 +189,10 @@ class FolderHandler(BaseHandler):
             encoded_folder = "~" + folder.replace("/", "~")
 
         data = {"destination": destination}
-        result = self.client.post(f"objects/folder_config/{encoded_folder}/actions/move/invoke", data=data)
+        headers = self._if_match_header(f"objects/folder_config/{encoded_folder}")
+        result = self.client.post(
+            f"objects/folder_config/{encoded_folder}/actions/move/invoke", data=data, headers=headers
+        )
 
         if result.get("success"):
             return self.success_response(

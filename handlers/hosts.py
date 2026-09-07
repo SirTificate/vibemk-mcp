@@ -736,7 +736,8 @@ class HostHandler(BaseHandler):
             return self.error_response("Missing parameters", "host_name and target_folder are required")
 
         data = {"target_folder": target_folder}
-        result = self.client.post(f"objects/host_config/{host_name}/actions/move/invoke", data=data)
+        headers = self._if_match_header(f"objects/host_config/{host_name}")
+        result = self.client.post(f"objects/host_config/{host_name}/actions/move/invoke", data=data, headers=headers)
 
         if result.get("success"):
             return self.success_response(
