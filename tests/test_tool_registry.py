@@ -7,12 +7,17 @@ a tool the client can see must be callable, and a handler that exists must be
 reachable.
 """
 
+import ast
+import pathlib
+from typing import Dict
 from unittest.mock import MagicMock
 
 import pytest
 
 from mcp.registry import ToolRegistry
 from mcp.tools import get_all_tools
+
+HANDLERS_DIR = pathlib.Path(__file__).resolve().parent.parent / "handlers"
 
 
 @pytest.fixture
@@ -54,6 +59,34 @@ def test_every_handler_is_declared_as_a_tool(registry):
 
     unreachable = sorted(name for name in registry.tool_names() if name not in declared)
     assert unreachable == [], f"wired to a handler but never advertised: {unreachable}"
+
+
+def test_every_vibemk_string_literal_in_a_handler_is_a_declared_tool():
+    """Catches orphan dispatch branches the registry-level guards cannot see.
+
+    ToolRegistry only ever sees tool names that were actually wired in
+    mcp/registry.py, so a handler's own `if tool_name == "vibemk_x": ...`
+    dispatch branch for a name nobody registers is invisible to it — the
+    branch is simply dead code that no request can ever reach. This walks
+    every handlers/*.py module with ast and collects every string constant
+    that starts with "vibemk_" (dict keys and comparison literals alike, not
+    substrings inside longer help text, since ast.Constant.value is the whole
+    literal), then checks each one against the declared catalogue directly.
+    """
+    declared = {tool["name"] for tool in get_all_tools()}
+
+    orphans: Dict[str, str] = {}
+    for path in sorted(HANDLERS_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+                continue
+            if not node.value.startswith("vibemk_"):
+                continue
+            if node.value not in declared:
+                orphans.setdefault(node.value, path.name)
+
+    assert orphans == {}, f"referenced in a handler but never declared as a tool: {orphans}"
 
 
 def test_every_tool_has_a_usable_schema():

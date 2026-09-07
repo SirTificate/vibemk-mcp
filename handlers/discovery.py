@@ -21,7 +21,6 @@ class DiscoveryHandler(BaseHandler):
             "vibemk_start_bulk_discovery": self.start_bulk_discovery,
             "vibemk_get_discovery_status": self.get_discovery_status,
             "vibemk_get_bulk_discovery_status": self.get_bulk_discovery_status,
-            "vibemk_get_discovery_result": self.get_discovery_result,
             "vibemk_wait_for_discovery": self.wait_for_discovery,
             "vibemk_get_discovery_background_job": self.get_discovery_background_job,
         }
@@ -318,10 +317,6 @@ class DiscoveryHandler(BaseHandler):
         except Exception as e:
             logger.exception(f"Error getting bulk discovery status for job {job_id}")
             return [{"type": "text", "text": f"❌ Error getting bulk discovery status: {str(e)}"}]
-
-    async def get_discovery_result(self, args: Dict[str, Any]) -> List[Dict[str, str]]:
-        """Get the current service discovery result (alias for get_discovery_status)"""
-        return await self.get_discovery_status(args)
 
     async def wait_for_discovery(self, args: Dict[str, Any]) -> List[Dict[str, str]]:
         """Wait for service discovery completion on a host"""
