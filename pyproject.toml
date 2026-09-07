@@ -135,22 +135,36 @@ allowed-confusables = ["ℹ", "➕"]
 # handler module). Restructuring it is separate work from this pass.
 "handlers/users.py" = ["PLR0911"]
 "mcp/tools.py" = ["E501"]
-"tests/conftest.py" = ["ANN001", "ANN201", "F401"]
-"tests/test_api_client.py" = ["ANN001", "ANN201", "F401", "PLR2004"]
+# ANN001/ANN201/ANN202/ANN204 only, across every tests/ entry below: mirrors the
+# tests.* mypy override above — a test function or fixture taking a mock and
+# returning None (or nothing) gains nothing from being told so on every one.
+# Each file's remaining code(s), where present, are a specific deferral:
+#   PLR2004 (test_api_client, test_config, test_handlers_downtimes,
+#     test_integration, test_mcp_server): the numeric literals compared are
+#     already documented by context immediately above the assertion (the
+#     env/config dict just set, or a well-known HTTP/JSON-RPC status code) --
+#     naming a constant would not make the expectation any clearer.
+#   SLF001 (test_etag_locking, test_handlers_downtimes, test_handlers_metrics):
+#     these files test a handler's private time/ETag-parsing helpers directly;
+#     that access is the test's whole point, not an accident.
+#   TRY003 (test_mcp_server): a two-line local test double that simulates a
+#     configuration failure, not application code that warrants its own
+#     exception subclass.
+"tests/conftest.py" = ["ANN001", "ANN201"]
+"tests/test_api_client.py" = ["ANN001", "ANN201", "PLR2004"]
 "tests/test_checkmk_endpoints.py" = ["ANN001", "ANN201"]
-"tests/test_client_transport.py" = ["ANN001", "ANN003", "ANN201", "PLC0415"]
-"tests/test_config.py" = ["ANN201", "PLR2004", "SIM117"]
+"tests/test_client_transport.py" = ["ANN001", "ANN201"]
+"tests/test_config.py" = ["ANN201", "PLR2004"]
 "tests/test_dotenv.py" = ["ANN001", "ANN201"]
 "tests/test_etag_locking.py" = ["ANN001", "ANN201", "SLF001"]
-"tests/test_handlers_downtimes.py" = ["ANN001", "ANN201", "ARG002", "DTZ007", "F401", "PLR2004", "SLF001"]
-"tests/test_handlers_hosts.py" = ["ANN001", "ANN201", "F401", "F841"]
-"tests/test_handlers_metrics.py" = ["ANN001", "ANN201", "ARG001", "PT006", "SLF001"]
+"tests/test_handlers_downtimes.py" = ["ANN001", "ANN201", "PLR2004", "SLF001"]
+"tests/test_handlers_hosts.py" = ["ANN001", "ANN201"]
+"tests/test_handlers_metrics.py" = ["ANN001", "ANN201", "SLF001"]
 "tests/test_handlers_notifications.py" = ["ANN001", "ANN201"]
-"tests/test_handlers_services.py" = ["ANN001", "ANN201"]
-"tests/test_integration.py" = ["ANN001", "ANN201", "B007", "F401", "PLC0415", "PLR2004"]
+"tests/test_integration.py" = ["ANN001", "ANN201", "PLR2004"]
 "tests/test_mcp_server.py" = ["ANN001", "ANN201", "ANN202", "ANN204", "PLR2004", "TRY003"]
-"tests/test_tool_registry.py" = ["ANN001", "ANN201", "PLC0415"]
-"tests/test_transport.py" = ["ANN001", "ANN201", "ANN202", "ARG001", "F401", "PLC0415"]
+"tests/test_tool_registry.py" = ["ANN001", "ANN201"]
+"tests/test_transport.py" = ["ANN001", "ANN201", "ANN202"]
 
 [tool.mypy]
 python_version = "3.9"
@@ -172,30 +186,22 @@ show_error_codes = true
 # Ignore missing imports for external libraries
 ignore_missing_imports = true
 # Specific module configurations
+#
+# Tests are exempt from mandatory annotations, not from type checking. A test
+# function or fixture returning None gains nothing from `-> None` on every
+# one, so disallow_untyped_defs stays off here — but that is a narrow
+# exemption, not a blanket one: the three flags below only turn off the
+# consequences of *that* choice (an unannotated function is "untyped", so
+# strict mode would otherwise flag every call into it and every
+# @pytest.fixture/@patch decorating it). Wrong argument types, bad attribute
+# access, unsafe indexing and everything else strict mode checks still apply
+# to tests.* — there is no ignore_errors for this module pattern.
 [[tool.mypy.overrides]]
 module = "tests.*"
-disallow_untyped_defs = false  # Allow untyped tests during migration
-
-# Modules not yet type-clean. This list may only shrink: tests/test_lint_ratchet.py
-# fails when an entry is no longer needed. Do not add to it — a module you
-# change must be brought up to the configured strictness.
-[[tool.mypy.overrides]]
-module = [
-    "tests.conftest",
-    "tests.test_api_client",
-    "tests.test_checkmk_endpoints",
-    "tests.test_client_transport",
-    "tests.test_dotenv",
-    "tests.test_etag_locking",
-    "tests.test_handlers_hosts",
-    "tests.test_handlers_metrics",
-    "tests.test_handlers_notifications",
-    "tests.test_handlers_services",
-    "tests.test_integration",
-    "tests.test_mcp_server",
-    "tests.test_transport",
-]
-ignore_errors = true
+disallow_untyped_defs = false  # a test returning None gains nothing from saying so
+disallow_untyped_calls = false  # ...so calling an unannotated test/fixture must stay legal
+disallow_untyped_decorators = false  # ...and so must decorating one (@pytest.fixture, @patch)
+disallow_any_decorated = false  # unittest.mock.patch's decorator return type is Callable[..., Any]
 
 [tool.isort]
 profile = "black"

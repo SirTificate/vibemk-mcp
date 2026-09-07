@@ -61,9 +61,8 @@ class TestCheckMKConfig:
 
     def test_config_missing_required_fields(self):
         """Test configuration with missing required fields"""
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="CHECKMK_SERVER_URL"):
-                CheckMKConfig.from_env()
+        with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError, match="CHECKMK_SERVER_URL"):
+            CheckMKConfig.from_env()
 
     def test_config_invalid_boolean(self):
         """Test configuration with invalid boolean value"""

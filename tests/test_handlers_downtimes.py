@@ -5,10 +5,8 @@ These cover the contract between user-supplied time expressions and the
 UTC timestamps that get sent to the CheckMK REST API.
 """
 
-import os
 import time
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -67,7 +65,8 @@ class TestExplicitDatesArePreserved:
 class TestLocalTimesAreConvertedToUtc:
     """Times the user names without an offset are local, and must be sent as UTC."""
 
-    def test_time_tomorrow_is_converted_from_local_to_utc(self, handler, berlin_tz):
+    @pytest.mark.usefixtures("berlin_tz")
+    def test_time_tomorrow_is_converted_from_local_to_utc(self, handler):
         result = handler._parse_downtime_times("22:00 tomorrow", "", 120)
 
         local_tomorrow = (datetime.now().astimezone() + timedelta(days=1)).replace(
@@ -75,7 +74,8 @@ class TestLocalTimesAreConvertedToUtc:
         )
         assert as_utc(result["start_time"]) == local_tomorrow.astimezone(timezone.utc)
 
-    def test_bare_clock_time_is_converted_from_local_to_utc(self, handler, berlin_tz):
+    @pytest.mark.usefixtures("berlin_tz")
+    def test_bare_clock_time_is_converted_from_local_to_utc(self, handler):
         result = handler._parse_downtime_times("03:00", "", 60)
 
         start = as_utc(result["start_time"])
@@ -135,8 +135,10 @@ class TestOutputContract:
         for start in ["now", "+1h", "22:00 tomorrow", "2026-12-24T22:00:00Z", "in 2 hours", "garbage"]:
             result = handler._parse_downtime_times(start, "", 30)
             for key in ("start_time", "end_time"):
-                # Raises ValueError if the format ever drifts.
-                datetime.strptime(result[key], "%Y-%m-%dT%H:%M:%SZ")
+                # Raises ValueError if the format ever drifts. The parsed value
+                # itself is never used, only the fact that parsing succeeded, so
+                # the naive-datetime result this produces is fine here.
+                datetime.strptime(result[key], "%Y-%m-%dT%H:%M:%SZ")  # noqa: DTZ007
 
 
 class TestParseNaturalTime:

@@ -7,6 +7,8 @@ which the handlers swallow into a generic "failed" message — so the endpoint
 names need pinning in tests rather than discovering in production.
 """
 
+from typing import Any, List
+
 import pytest
 
 from api.exceptions import CheckMKAPIError
@@ -33,11 +35,11 @@ def service_handler(mock_checkmk_client):
     return ServiceHandler(mock_checkmk_client)
 
 
-def posted_paths(client) -> list:
+def posted_paths(client: Any) -> List[str]:
     return [call.args[0] for call in client.post.call_args_list if call.args]
 
 
-def fetched_paths(client) -> list:
+def fetched_paths(client: Any) -> List[str]:
     return [call.args[0] for call in client.get.call_args_list if call.args]
 
 

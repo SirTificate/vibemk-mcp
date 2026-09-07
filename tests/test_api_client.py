@@ -2,8 +2,8 @@
 Tests for CheckMK API Client
 """
 
-import json
 import urllib.error
+from email.message import Message
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -52,8 +52,12 @@ class TestCheckMKClient:
         """Test authentication error handling"""
         with patch("urllib.request.urlopen") as mock_urlopen:
             # Mock 401 authentication error for the actual request
-            error = urllib.error.HTTPError(url="test", code=401, msg="Unauthorized", hdrs={}, fp=None)
-            error.read = MagicMock(return_value=b'{"title": "Unauthorized", "detail": "Invalid credentials"}')
+            error = urllib.error.HTTPError(url="test", code=401, msg="Unauthorized", hdrs=Message(), fp=None)
+            # Replacing .read() is the point of the test double; strict mode's
+            # objection to overwriting a method is intentional here.
+            error.read = MagicMock(  # type: ignore[method-assign]
+                return_value=b'{"title": "Unauthorized", "detail": "Invalid credentials"}'
+            )
 
             mock_urlopen.side_effect = error
 
@@ -87,7 +91,7 @@ class TestCheckMKClient:
             mock_success_response.__enter__.return_value = mock_success_response
             mock_success_response.__exit__.return_value = False
 
-            mock_error = urllib.error.HTTPError("test", 500, "Server Error", {}, None)
+            mock_error = urllib.error.HTTPError("test", 500, "Server Error", Message(), None)
 
             mock_urlopen.side_effect = [
                 mock_error,  # First request fails

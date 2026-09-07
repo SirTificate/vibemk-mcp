@@ -33,7 +33,8 @@ def as_utc(stamp: str) -> datetime:
     return datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 
 
-def test_window_is_the_same_instant_in_every_host_timezone(handler, monkeypatch, restore_timezone):
+@pytest.mark.usefixtures("restore_timezone")
+def test_window_is_the_same_instant_in_every_host_timezone(handler, monkeypatch):
     windows = []
     for zone in TIMEZONES:
         monkeypatch.setenv("TZ", zone)
@@ -53,7 +54,7 @@ def test_window_ends_at_the_current_utc_instant(handler):
 
 
 @pytest.mark.parametrize(
-    "name,span",
+    ("name", "span"),
     [
         ("1h", timedelta(hours=1)),
         ("4h", timedelta(hours=4)),

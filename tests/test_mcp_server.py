@@ -13,6 +13,7 @@ import pytest
 
 from config import MCPConfig
 from mcp.dispatch import Dispatcher
+from mcp.registry import ToolRegistry
 
 
 class RecordingHandler:
@@ -30,15 +31,12 @@ class RecordingHandler:
         return self.result
 
 
-class StubRegistry:
-    def __init__(self, handlers: Optional[Dict[str, Any]] = None):
-        self._handlers = handlers or {}
+class StubRegistry(ToolRegistry):
+    """A registry built directly from a handler mapping, skipping from_client's
+    CheckMK-client wiring. handler_for/tool_names are inherited unchanged."""
 
-    def handler_for(self, tool_name):
-        return self._handlers.get(tool_name)
-
-    def tool_names(self):
-        return frozenset(self._handlers)
+    def __init__(self, handlers: Optional[Dict[str, Any]] = None) -> None:
+        super().__init__(handlers or {})
 
 
 def make_dispatcher(handlers=None):
@@ -154,6 +152,7 @@ class TestConfigurationErrors:
 
         response = await dispatcher.handle(request("tools/call", {"name": "vibemk_demo", "arguments": {}}))
 
+        assert response is not None
         assert "CHECKMK_SERVER_URL is required" in response["result"]["content"][0]["text"]
 
     @pytest.mark.asyncio
@@ -163,4 +162,5 @@ class TestConfigurationErrors:
 
         response = await Dispatcher(explode, MCPConfig()).handle(request("tools/list"))
 
+        assert response is not None
         assert len(response["result"]["tools"]) == 117

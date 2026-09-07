@@ -122,8 +122,6 @@ def test_repository_root_is_not_a_python_package():
     repository to anything containing a hyphen then breaks collection of the
     whole suite with "attempted relative import with no known parent package".
     """
-    import pathlib
-
     root = pathlib.Path(__file__).resolve().parent.parent
 
     assert not (root / "__init__.py").exists(), (

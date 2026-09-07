@@ -5,16 +5,19 @@ Covers the scheme chosen for a bare host name and the ability to send
 per-request headers, which CheckMK's optimistic locking (If-Match) needs.
 """
 
+import pathlib
+import re
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from api.client import CheckMKClient
-from config import CheckMKConfig
+from config import CheckMKConfig, MCPConfig
 
 
-def make_config(**overrides) -> CheckMKConfig:
-    values = {
+def make_config(**overrides: Any) -> CheckMKConfig:
+    values: Dict[str, Any] = {
         "server_url": "https://checkmk.example.com",
         "site": "test",
         "username": "automation",
@@ -61,7 +64,7 @@ class TestPerRequestHeaders:
     def client(self):
         return CheckMKClient(make_config(), skip_url_detection=True)
 
-    def sent_headers(self, mock_urlopen) -> dict:
+    def sent_headers(self, mock_urlopen: Any) -> Dict[str, str]:
         request = mock_urlopen.call_args[0][0]
         # urllib capitalises header names when they are added to a Request.
         return {key.lower(): value for key, value in request.header_items()}
@@ -94,8 +97,6 @@ class TestPerRequestHeaders:
 
 class TestUserAgent:
     def test_user_agent_reports_the_server_version(self):
-        from config import MCPConfig
-
         client = CheckMKClient(make_config(), skip_url_detection=True)
 
         assert client.headers["User-Agent"] == f"vibeMK/{MCPConfig().version}"
@@ -103,12 +104,9 @@ class TestUserAgent:
 
 class TestVersionConsistency:
     def test_advertised_version_matches_package_metadata(self):
-        import pathlib
-        import re
-
-        from config import MCPConfig
-
         pyproject = (pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
-        declared = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE).group(1)
+        match = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE)
+        assert match is not None, "pyproject.toml has no [project] version field"
+        declared = match.group(1)
 
         assert MCPConfig().version == declared

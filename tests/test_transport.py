@@ -4,10 +4,9 @@ Tests for the stdio transport.
 The streams are injected, so the loop is exercised without a subprocess.
 """
 
+import asyncio
 import io
 import json
-
-import pytest
 
 from mcp.transport import StdioTransport
 
@@ -24,7 +23,6 @@ def responder(response=None):
 def run_with(lines, handle):
     stdin = io.StringIO("".join(line + "\n" for line in lines))
     stdout = io.StringIO()
-    import asyncio
 
     asyncio.run(StdioTransport(handle, stdin=stdin, stdout=stdout).run())
     return [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
@@ -49,7 +47,7 @@ def test_a_blank_line_is_skipped():
 
 
 def test_a_notification_writes_nothing():
-    async def handle(request):
+    async def handle(_request):
         return None
 
     assert run_with(['{"jsonrpc":"2.0","method":"notifications/initialized"}'], handle) == []
