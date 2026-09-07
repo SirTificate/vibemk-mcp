@@ -81,12 +81,24 @@ ignore = ["ANN101", "ANN102", "ANN401"]
 "handlers/base.py" = ["PIE790", "PYI041", "RUF001"]
 "handlers/configuration.py" = ["G004", "PLR2004", "RET505", "RUF001"]
 "handlers/discovery.py" = ["E501", "G004", "ISC004", "PLR2004", "RET505", "RUF010"]
-"handlers/downtimes.py" = ["ANN001", "DTZ001", "DTZ005", "DTZ006", "E501", "F541", "F841", "G004", "PLC0415", "PLR0911", "PLR0912", "PLR0915", "PLR1714", "PLR2004", "PLW2901", "RET505", "RUF001", "RUF013", "SIM102", "SIM110", "TRY002", "TRY003", "TRY300", "TRY301", "TRY400"]
+# PLR0911/PLR0912 only: handle() is a tool-name dispatch table (same shape kept
+# across every handler module); _parse_natural_time's five parsing patterns are
+# independent early-returning alternatives over already-tested (17 regression
+# tests), timezone-sensitive code, so it is deliberately not restructured here.
+# Restructuring either is separate work from this pass.
+"handlers/downtimes.py" = ["PLR0911", "PLR0912"]
 "handlers/folders.py" = ["G004", "PLR0911", "RET505"]
 "handlers/groups.py" = ["ARG002", "G004", "PLR0911", "RET505"]
 "handlers/host_group_rules.py" = ["ARG002", "E501", "F541", "G004", "PLR0911", "PLR0912", "PLR0915", "RET505", "RUF010"]
-"handlers/hosts.py" = ["ARG002", "E501", "E722", "F401", "F541", "F841", "G004", "PLC0206", "PLC0415", "PLR0911", "PLR0912", "PLR0915", "PLR2004", "RET505", "RUF001", "RUF010", "RUF019", "SIM102", "TRY300", "TRY401"]
-"handlers/metrics.py" = ["E501", "F401", "F541", "F811", "G004", "PLC0415", "PLR0911", "PLR0912", "PLR2004", "RET505", "RUF010", "RUF034"]
+# PLR0911/PLR0912 only: handle() is a tool-name dispatch table (same shape kept
+# across every handler module) with more tool branches than most; restructuring
+# it is separate work from this pass.
+"handlers/hosts.py" = ["PLR0911", "PLR0912"]
+# PLR0911 only: handle() is a tool-name dispatch table (same shape kept across every
+# handler module); _get_service_metrics has a two-step fallback chain (list available
+# metrics, then fetch the named one) whose branches are independent by design.
+# Restructuring either is separate work from this pass.
+"handlers/metrics.py" = ["PLR0911"]
 "handlers/monitoring.py" = ["G004", "ISC001", "PLR0911", "RET505", "RUF001", "TRY400"]
 "handlers/notifications.py" = ["G004", "PLC0415", "PLR0911", "RET505"]
 "handlers/passwords.py" = ["ARG002", "G004", "PLR0911", "RET505"]
@@ -141,9 +153,6 @@ disallow_untyped_defs = false  # Allow untyped tests during migration
 # change must be brought up to the configured strictness.
 [[tool.mypy.overrides]]
 module = [
-    "handlers.downtimes",
-    "handlers.hosts",
-    "handlers.metrics",
     "tests.conftest",
     "tests.test_api_client",
     "tests.test_checkmk_endpoints",

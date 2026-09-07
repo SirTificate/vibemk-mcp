@@ -2,9 +2,10 @@
 Host management handlers with enhanced features for CheckMK integration
 """
 
-import json
+import ipaddress
+import re
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 from api.exceptions import CheckMKError, CheckMKNotFoundError
 from handlers.base import BaseHandler
@@ -13,48 +14,53 @@ from handlers.base import BaseHandler
 class HostHandler(BaseHandler):
     """Handle host management operations"""
 
+    _SECONDS_PER_MINUTE = 60
+    _SECONDS_PER_HOUR = 3600
+    _MAX_LISTED_HOSTS = 10
+    _MAX_ALIAS_LENGTH = 255
+    _STATUS_EMOJI: ClassVar[Dict[str, str]] = {"UP": "🟢", "DOWN": "🔴", "UNREACHABLE": "🟡"}
+
     async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle host-related tool calls"""
 
         try:
             if tool_name == "vibemk_get_checkmk_hosts":
                 return await self._get_hosts(arguments)
-            elif tool_name == "vibemk_get_host_status":
+            if tool_name == "vibemk_get_host_status":
                 return await self._get_host_status(arguments.get("host_name"))
-            elif tool_name == "vibemk_get_host_details":
+            if tool_name == "vibemk_get_host_details":
                 return await self._get_host_details(arguments.get("host_name"))
-            elif tool_name == "vibemk_get_host_config":
+            if tool_name == "vibemk_get_host_config":
                 return await self._get_host_config(arguments.get("host_name"))
-            elif tool_name == "vibemk_create_host":
+            if tool_name == "vibemk_create_host":
                 return await self._create_host_smart(arguments)
-            elif tool_name == "vibemk_bulk_create_hosts":
+            if tool_name == "vibemk_bulk_create_hosts":
                 return await self._bulk_create_hosts(arguments)
-            elif tool_name == "vibemk_update_host":
+            if tool_name == "vibemk_update_host":
                 return await self._update_host(arguments)
-            elif tool_name == "vibemk_delete_host":
+            if tool_name == "vibemk_delete_host":
                 return await self._delete_host(arguments.get("host_name"))
-            elif tool_name == "vibemk_move_host":
+            if tool_name == "vibemk_move_host":
                 return await self._move_host(arguments)
-            elif tool_name == "vibemk_bulk_update_hosts":
+            if tool_name == "vibemk_bulk_update_hosts":
                 return await self._bulk_update_hosts(arguments)
-            elif tool_name == "vibemk_create_cluster_host":
+            if tool_name == "vibemk_create_cluster_host":
                 return await self._create_cluster_host(arguments)
-            elif tool_name == "vibemk_validate_host_config":
+            if tool_name == "vibemk_validate_host_config":
                 return await self._validate_host_config(arguments)
-            elif tool_name == "vibemk_compare_host_states":
+            if tool_name == "vibemk_compare_host_states":
                 return await self._compare_host_states(arguments)
-            elif tool_name == "vibemk_get_host_effective_attributes":
+            if tool_name == "vibemk_get_host_effective_attributes":
                 return await self._get_host_effective_attributes(arguments)
-            else:
-                return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
+            return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
 
         except CheckMKError as e:
             return self.error_response("CheckMK API Error", str(e))
         except Exception as e:
-            self.logger.exception(f"Error in {tool_name}")
+            self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
-    async def _get_hosts(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_hosts(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of hosts with optional filtering"""
         # Use the monitoring 'host' collection, not the Setup 'host_config' one:
         # a read-only/Guest account sees host_config as empty (HTTP 200, value=[]).
@@ -89,218 +95,206 @@ class HostHandler(BaseHandler):
             }
         ]
 
-    async def _get_host_status(self, host_name: str) -> List[Dict[str, Any]]:
-        """Get host status information using the correct CheckMK API"""
+    def _status_display(self, status: str) -> str:
+        """Render a status label with its conventional emoji."""
+        emoji = self._STATUS_EMOJI.get(status, "⚪")
+        return f"{emoji} **{status}**"
+
+    def _format_seconds_ago(self, seconds: int) -> str:
+        """Render an elapsed-seconds duration the way CheckMK's UI does."""
+        if seconds < self._SECONDS_PER_MINUTE:
+            return f"{seconds}s ago"
+        if seconds < self._SECONDS_PER_HOUR:
+            return f"{seconds // self._SECONDS_PER_MINUTE}m ago"
+        return f"{seconds // self._SECONDS_PER_HOUR}h ago"
+
+    def _format_timestamp(self, timestamp: Any, default: str) -> str:
+        """Render a CheckMK epoch timestamp as a relative 'ago' string.
+
+        Falls back to the raw value (or `default` when absent) if it isn't a
+        plain numeric epoch, which some responses hand back instead.
+        """
+        if not isinstance(timestamp, (int, float)):
+            return str(timestamp) if timestamp else default
+        try:
+            return self._format_seconds_ago(int(time.time() - timestamp))
+        except (ValueError, OverflowError):
+            return str(timestamp)
+
+    async def _get_host_status(self, host_name: Optional[str]) -> List[Dict[str, Any]]:
+        """Get host status information using the correct CheckMK API.
+
+        Tries three independent lookup methods in order, falling back to the
+        next one whenever a method fails outright (raises) or comes back
+        without enough data to answer from.
+        """
         if not host_name:
             return self.error_response("Missing parameter", "host_name is required")
 
-        self.logger.debug(f"Getting host status for: {host_name} (using correct API method)")
+        self.logger.debug("Getting host status for: %s (using correct API method)", host_name)
 
-        # Method 1: Use the documented CheckMK API with columns parameter
-        # This is the correct approach similar to the service status fix
         try:
-            # Use the documented CheckMK API format: objects/host/{name}?columns=...
-            # Include hard_state and state_type to get the correct monitoring state
-            params = {
-                "columns": [
-                    "name",
-                    "state",
-                    "hard_state",
-                    "state_type",
-                    "plugin_output",
-                    "last_check",
-                    "last_state_change",
-                    "has_been_checked",
-                ]
-            }
-
-            result = self.client.get(f"objects/host/{host_name}", params=params)
-            self.logger.debug(f"Host status API result: {result}")
-
-            if result.get("success"):
-                data = result.get("data", {})
-
-                if isinstance(data, dict) and "extensions" in data:
-                    extensions = data["extensions"]
-
-                    # Extract host state and other information
-                    # Use hard_state for the actual monitoring status (more reliable than soft state)
-                    state = extensions.get("state")  # Soft state
-                    hard_state = extensions.get("hard_state")  # Hard state
-                    state_type = extensions.get("state_type")  # 0=soft, 1=hard
-                    has_been_checked = extensions.get("has_been_checked", 0)
-                    plugin_output = extensions.get("plugin_output", "No output available")
-                    last_check = extensions.get("last_check")
-                    last_state_change = extensions.get("last_state_change")
-
-                    # Use the appropriate state based on state_type
-                    # If it's a hard state (state_type=1), use hard_state, otherwise use state
-                    if hard_state is not None and state_type == 1:
-                        effective_state = hard_state
-                        state_info = f"Hard State: {hard_state}"
-                    elif state is not None:
-                        effective_state = state
-                        state_info = f"Soft State: {state}"
-                    else:
-                        effective_state = None
-
-                    if effective_state is not None:
-                        # Map numeric state to human-readable status
-                        state_map = {0: "UP", 1: "DOWN", 2: "UNREACHABLE"}
-                        status = state_map.get(effective_state, f"UNKNOWN({effective_state})")
-
-                        # Format timestamps if available
-                        import time
-
-                        if isinstance(last_check, (int, float)):
-                            try:
-                                last_check_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_check))
-                                time_diff = int(time.time() - last_check)
-                                if time_diff < 60:
-                                    last_check_display = f"{time_diff}s ago"
-                                elif time_diff < 3600:
-                                    last_check_display = f"{time_diff // 60}m ago"
-                                else:
-                                    last_check_display = f"{time_diff // 3600}h ago"
-                            except:
-                                last_check_display = str(last_check)
-                        else:
-                            last_check_display = str(last_check) if last_check else "Never"
-
-                        if isinstance(last_state_change, (int, float)):
-                            try:
-                                change_diff = int(time.time() - last_state_change)
-                                if change_diff < 60:
-                                    change_display = f"{change_diff}s ago"
-                                elif change_diff < 3600:
-                                    change_display = f"{change_diff // 60}m ago"
-                                else:
-                                    change_display = f"{change_diff // 3600}h ago"
-                            except:
-                                change_display = str(last_state_change)
-                        else:
-                            change_display = str(last_state_change) if last_state_change else "Unknown"
-
-                        # Choose appropriate emoji based on status
-                        if status == "UP":
-                            status_emoji = "🟢"
-                            status_display = f"{status_emoji} **{status}**"
-                        elif status == "DOWN":
-                            status_emoji = "🔴"
-                            status_display = f"{status_emoji} **{status}**"
-                        elif status == "UNREACHABLE":
-                            status_emoji = "🟡"
-                            status_display = f"{status_emoji} **{status}**"
-                        else:
-                            status_emoji = "⚪"
-                            status_display = f"{status_emoji} **{status}**"
-
-                        return [
-                            {
-                                "type": "text",
-                                "text": (
-                                    f"✅ **Host Status: {host_name}**\n\n"
-                                    f"**Status:** {status_display}\n"
-                                    f"**State Code:** {effective_state} ({state_info})\n"
-                                    f"**Has Been Checked:** {'Yes' if has_been_checked else 'No'}\n"
-                                    f"**Last Check:** {last_check_display}\n"
-                                    f"**Last State Change:** {change_display}\n\n"
-                                    f"**Plugin Output:** {plugin_output}\n\n"
-                                    f"✅ **Live monitoring data from CheckMK REST API**"
-                                ),
-                            }
-                        ]
-                    else:
-                        return self.error_response(
-                            "No state data", f"Host '{host_name}' found but no state information available"
-                        )
-                else:
-                    return self.error_response("Unexpected response", "Host data structure not as expected")
-            else:
-                # Host not found or API error
-                error_data = result.get("data", {})
-                if "Host does not exist" in str(error_data):
-                    return self.error_response("Host not found", f"Host '{host_name}' not found in CheckMK")
-                else:
-                    return self.error_response("API Error", f"Failed to retrieve host status: {error_data}")
-
-        except Exception as e:
-            self.logger.exception(f"Host status API call failed: {e}")
+            return self._host_status_via_direct_api(host_name)
+        except Exception:
             # Fall back to alternative methods if the main API fails
+            self.logger.exception("Host status API call failed")
 
-        # Method 2: Fallback using host collections endpoint
         try:
-            self.logger.debug("Trying fallback method: host collections")
-            result = self.client.get("domain-types/host/collections/all")
-
-            if result.get("success"):
-                data = result.get("data", {})
-                if "value" in data:
-                    hosts = data["value"]
-
-                    # Find the specific host
-                    for host in hosts:
-                        if isinstance(host, dict) and host.get("id") == host_name:
-                            extensions = host.get("extensions", {})
-                            state = extensions.get("state")
-
-                            if state is not None:
-                                state_map = {0: "UP", 1: "DOWN", 2: "UNREACHABLE"}
-                                status = state_map.get(state, f"UNKNOWN({state})")
-
-                                if status == "UP":
-                                    status_display = f"🟢 **{status}**"
-                                elif status == "DOWN":
-                                    status_display = f"🔴 **{status}**"
-                                elif status == "UNREACHABLE":
-                                    status_display = f"🟡 **{status}**"
-                                else:
-                                    status_display = f"⚪ **{status}**"
-
-                                return [
-                                    {
-                                        "type": "text",
-                                        "text": (
-                                            f"✅ **Host Status: {host_name}** (Fallback Method)\n\n"
-                                            f"**Status:** {status_display}\n"
-                                            f"**State Code:** {state}\n\n"
-                                            f"✅ **Data from CheckMK host collections API**"
-                                        ),
-                                    }
-                                ]
-
-                    # Host not found in collections
-                    return self.error_response("Host not found", f"Host '{host_name}' not found in host collections")
+            fallback_result = self._host_status_via_collections(host_name)
+            if fallback_result is not None:
+                return fallback_result
         except Exception as e:
-            self.logger.debug(f"Fallback method failed: {e}")
+            self.logger.debug("Fallback method failed: %s", e)
 
-        # Method 3: Final fallback - check if host exists in configuration
         try:
-            host_config = self.client.get(f"objects/host_config/{host_name}")
-            if host_config.get("success"):
-                return [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"⚪ **Host Status: {host_name}**\n\n"
-                            f"**Status:** MONITORING DATA UNAVAILABLE\n\n"
-                            f"✅ Host is configured in CheckMK\n"
-                            f"❌ Live monitoring state not accessible\n\n"
-                            f"**Possible Issues:**\n"
-                            f"• Host not actively monitored\n"
-                            f"• Monitoring core not running\n"
-                            f"• API permissions insufficient\n\n"
-                            f"**Recommendation:**\n"
-                            f"Check CheckMK GUI for actual status"
-                        ),
-                    }
-                ]
-            else:
-                return self.error_response("Host not found", f"Host '{host_name}' not found in CheckMK")
+            return self._host_status_via_config_check(host_name)
         except Exception as e:
-            self.logger.debug(f"Host config check failed: {e}")
+            self.logger.debug("Host config check failed: %s", e)
 
         # If all methods failed, return comprehensive error information
+        return self._host_status_unavailable(host_name)
+
+    def _host_status_via_direct_api(self, host_name: str) -> List[Dict[str, Any]]:
+        """Method 1: the documented CheckMK API with an explicit columns list.
+
+        Uses hard_state for the actual monitoring status (more reliable than
+        soft state), matching the equivalent fix applied to service status.
+        """
+        params = {
+            "columns": [
+                "name",
+                "state",
+                "hard_state",
+                "state_type",
+                "plugin_output",
+                "last_check",
+                "last_state_change",
+                "has_been_checked",
+            ]
+        }
+
+        result = self.client.get(f"objects/host/{host_name}", params=params)
+        self.logger.debug("Host status API result: %s", result)
+
+        if not result.get("success"):
+            error_data = result.get("data", {})
+            if "Host does not exist" in str(error_data):
+                return self.error_response("Host not found", f"Host '{host_name}' not found in CheckMK")
+            return self.error_response("API Error", f"Failed to retrieve host status: {error_data}")
+
+        data = result.get("data", {})
+        if not (isinstance(data, dict) and "extensions" in data):
+            return self.error_response("Unexpected response", "Host data structure not as expected")
+
+        extensions = data["extensions"]
+
+        # Use the appropriate state based on state_type.
+        # If it's a hard state (state_type=1), use hard_state, otherwise use state.
+        state = extensions.get("state")  # Soft state
+        hard_state = extensions.get("hard_state")  # Hard state
+        state_type = extensions.get("state_type")  # 0=soft, 1=hard
+        if hard_state is not None and state_type == 1:
+            effective_state = hard_state
+            state_info = f"Hard State: {hard_state}"
+        elif state is not None:
+            effective_state = state
+            state_info = f"Soft State: {state}"
+        else:
+            effective_state = None
+            state_info = ""
+
+        if effective_state is None:
+            return self.error_response("No state data", f"Host '{host_name}' found but no state information available")
+
+        has_been_checked = extensions.get("has_been_checked", 0)
+        plugin_output = extensions.get("plugin_output", "No output available")
+        state_map = {0: "UP", 1: "DOWN", 2: "UNREACHABLE"}
+        status = state_map.get(effective_state, f"UNKNOWN({effective_state})")
+        status_display = self._status_display(status)
+        last_check_display = self._format_timestamp(extensions.get("last_check"), "Never")
+        change_display = self._format_timestamp(extensions.get("last_state_change"), "Unknown")
+
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"✅ **Host Status: {host_name}**\n\n"
+                    f"**Status:** {status_display}\n"
+                    f"**State Code:** {effective_state} ({state_info})\n"
+                    f"**Has Been Checked:** {'Yes' if has_been_checked else 'No'}\n"
+                    f"**Last Check:** {last_check_display}\n"
+                    f"**Last State Change:** {change_display}\n\n"
+                    f"**Plugin Output:** {plugin_output}\n\n"
+                    f"✅ **Live monitoring data from CheckMK REST API**"
+                ),
+            }
+        ]
+
+    def _host_status_via_collections(self, host_name: str) -> Optional[List[Dict[str, Any]]]:
+        """Method 2: look the host up in the host collections listing.
+
+        Returns None when the response doesn't carry a usable 'value' list, so
+        the caller falls through to the next method without treating it as an
+        error.
+        """
+        self.logger.debug("Trying fallback method: host collections")
+        result = self.client.get("domain-types/host/collections/all")
+
+        if not result.get("success"):
+            return None
+        data = result.get("data", {})
+        if "value" not in data:
+            return None
+
+        for host in data["value"]:
+            if isinstance(host, dict) and host.get("id") == host_name:
+                extensions = host.get("extensions", {})
+                state = extensions.get("state")
+                if state is not None:
+                    state_map = {0: "UP", 1: "DOWN", 2: "UNREACHABLE"}
+                    status = state_map.get(state, f"UNKNOWN({state})")
+                    status_display = self._status_display(status)
+
+                    return [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"✅ **Host Status: {host_name}** (Fallback Method)\n\n"
+                                f"**Status:** {status_display}\n"
+                                f"**State Code:** {state}\n\n"
+                                f"✅ **Data from CheckMK host collections API**"
+                            ),
+                        }
+                    ]
+
+        # Host not found in collections
+        return self.error_response("Host not found", f"Host '{host_name}' not found in host collections")
+
+    def _host_status_via_config_check(self, host_name: str) -> List[Dict[str, Any]]:
+        """Method 3: last-resort check that the host exists in configuration at all."""
+        host_config = self.client.get(f"objects/host_config/{host_name}")
+        if host_config.get("success"):
+            return [
+                {
+                    "type": "text",
+                    "text": (
+                        f"⚪ **Host Status: {host_name}**\n\n"
+                        f"**Status:** MONITORING DATA UNAVAILABLE\n\n"
+                        f"✅ Host is configured in CheckMK\n"
+                        f"❌ Live monitoring state not accessible\n\n"
+                        f"**Possible Issues:**\n"
+                        f"• Host not actively monitored\n"
+                        f"• Monitoring core not running\n"
+                        f"• API permissions insufficient\n\n"
+                        f"**Recommendation:**\n"
+                        f"Check CheckMK GUI for actual status"
+                    ),
+                }
+            ]
+        return self.error_response("Host not found", f"Host '{host_name}' not found in CheckMK")
+
+    def _host_status_unavailable(self, host_name: str) -> List[Dict[str, Any]]:
+        """Comprehensive failure message once every lookup method has failed."""
         return [
             {
                 "type": "text",
@@ -322,7 +316,7 @@ class HostHandler(BaseHandler):
             }
         ]
 
-    async def _get_host_details(self, host_name: str) -> List[Dict[str, Any]]:
+    async def _get_host_details(self, host_name: Optional[str]) -> List[Dict[str, Any]]:
         """Get detailed host information"""
         if not host_name:
             return self.error_response("Missing parameter", "host_name is required")
@@ -350,7 +344,7 @@ class HostHandler(BaseHandler):
             }
         ]
 
-    async def _get_host_config(self, host_name: str) -> List[Dict[str, Any]]:
+    async def _get_host_config(self, host_name: Optional[str]) -> List[Dict[str, Any]]:
         """Get host configuration"""
         if not host_name:
             return self.error_response("Missing parameter", "host_name is required")
@@ -367,21 +361,20 @@ class HostHandler(BaseHandler):
         """Smart host creation that automatically detects single vs multiple hosts and routes to appropriate API"""
 
         # Check if this is multiple hosts mode (has 'hosts' array)
-        if "hosts" in arguments and arguments["hosts"]:
+        if arguments.get("hosts"):
             # Multiple hosts - route to bulk creation API
             bulk_arguments = {"entries": arguments["hosts"], "bake_agent": arguments.get("bake_agent", False)}
-            self.logger.info(f"Detected {len(arguments['hosts'])} hosts - routing to bulk creation API")
+            self.logger.info("Detected %d hosts - routing to bulk creation API", len(arguments["hosts"]))
             return await self._bulk_create_hosts(bulk_arguments)
 
         # Single host mode - route to individual creation API
-        elif "host_name" in arguments:
-            self.logger.info(f"Detected single host '{arguments['host_name']}' - routing to individual creation API")
+        if "host_name" in arguments:
+            self.logger.info("Detected single host '%s' - routing to individual creation API", arguments["host_name"])
             return await self._create_host(arguments)
 
-        else:
-            return self.error_response(
-                "Invalid parameters", "Must provide either 'host_name' (single mode) or 'hosts' array (multiple mode)"
-            )
+        return self.error_response(
+            "Invalid parameters", "Must provide either 'host_name' (single mode) or 'hosts' array (multiple mode)"
+        )
 
     async def _create_host(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create a new host with enhanced validation"""
@@ -432,16 +425,106 @@ class HostHandler(BaseHandler):
                         )
                         + (f"• Alias: {attributes.get('alias', 'Not set')}\n" if attributes.get("alias") else "")
                         + (f"• Site: {attributes.get('site', 'Default')}\n" if attributes.get("site") else "")
-                        + f"\n⚠️ **Remember to activate changes!**\n\n"
-                        f"💡 **Next Steps:**\n"
-                        f"1️⃣ Use 'get_pending_changes' to review\n"
-                        f"2️⃣ Use 'activate_changes' to apply configuration"
+                        + "\n⚠️ **Remember to activate changes!**\n\n"
+                        "💡 **Next Steps:**\n"
+                        "1️⃣ Use 'get_pending_changes' to review\n"
+                        "2️⃣ Use 'activate_changes' to apply configuration"
                     ),
                 }
             ]
+        error_details = result.get("data", {})
+        return self.error_response("Host creation failed", f"Could not create host '{host_name}': {error_details}")
+
+    def _validate_bulk_create_entries(self, entries: List[Dict[str, Any]]) -> List[str]:
+        """Validate each entry of a bulk host-create request."""
+        validation_errors = []
+        for i, entry in enumerate(entries):
+            host_name = entry.get("host_name")
+            attributes = entry.get("attributes", {})
+
+            if not host_name:
+                validation_errors.append(f"Entry {i+1}: host_name is required")
+            elif not self._validate_host_name(host_name):
+                validation_errors.append(f"Entry {i+1}: Invalid host name '{host_name}'")
+
+            if "ipaddress" in attributes and not self._validate_ip_address(attributes["ipaddress"]):
+                validation_errors.append(f"Entry {i+1}: Invalid IP address '{attributes['ipaddress']}'")
+
+        return validation_errors
+
+    def _format_bulk_create_success(
+        self, result: Dict[str, Any], entries: List[Dict[str, Any]], bake_agent: bool
+    ) -> List[Dict[str, Any]]:
+        """Build the success response for a bulk host-create call."""
+        created_hosts = []
+        success_count = 0
+
+        # Check if response contains details about created hosts
+        response_data = result.get("data", {})
+        if isinstance(response_data, dict) and "value" in response_data:
+            created_hosts_data = response_data["value"]
+            if isinstance(created_hosts_data, list):
+                success_count = len(created_hosts_data)
+                for host_data in created_hosts_data[: self._MAX_LISTED_HOSTS]:
+                    host_id = host_data.get("id", "Unknown")
+                    folder_path = host_data.get("extensions", {}).get("folder", "/")
+                    created_hosts.append(f"• {host_id} (Folder: {folder_path})")
+            else:
+                success_count = len(entries)  # Fallback
         else:
-            error_details = result.get("data", {})
-            return self.error_response("Host creation failed", f"Could not create host '{host_name}': {error_details}")
+            success_count = len(entries)  # Fallback if no detailed response
+
+        response_text = "✅ **Bulk Host Creation Successful**\n\n"
+        response_text += f"**Hosts Created:** {success_count}/{len(entries)}\n"
+
+        if bake_agent:
+            response_text += "**Agent Baking:** Enabled (process started in background)\n"
+
+        response_text += "\n📋 **Created Hosts:**\n"
+
+        if created_hosts:
+            response_text += "\n".join(created_hosts)
+            if len(entries) > self._MAX_LISTED_HOSTS:
+                response_text += f"\n... and {len(entries) - self._MAX_LISTED_HOSTS} more hosts"
+        else:
+            # Fallback: show requested host names
+            for i, entry in enumerate(entries[: self._MAX_LISTED_HOSTS]):
+                host_name = entry.get("host_name", f"Host-{i+1}")
+                folder = entry.get("folder", "/")
+                response_text += f"• {host_name} (Folder: {folder})\n"
+            if len(entries) > self._MAX_LISTED_HOSTS:
+                response_text += f"... and {len(entries) - self._MAX_LISTED_HOSTS} more hosts\n"
+
+        response_text += "\n⚠️ **Remember to activate changes!**\n\n"
+        response_text += "💡 **Next Steps:**\n"
+        response_text += "1️⃣ Use 'get_pending_changes' to review all changes\n"
+        response_text += "2️⃣ Use 'activate_changes' to apply configuration\n"
+
+        if bake_agent:
+            response_text += "3️⃣ Monitor agent baking progress in CheckMK GUI"
+
+        return [{"type": "text", "text": response_text}]
+
+    def _format_bulk_create_error(self, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Build the error response for a failed bulk host-create call."""
+        error_details = result.get("data", {})
+        error_message = str(error_details)
+
+        if "already exists" in error_message.lower():
+            return self.error_response(
+                "Duplicate host error", f"One or more hosts already exist. Details: {error_details}"
+            )
+        if "validation" in error_message.lower() or "400" in str(result.get("status", "")):
+            return self.error_response(
+                "Validation error", f"CheckMK validation failed for bulk host creation: {error_details}"
+            )
+        if "permission" in error_message.lower() or "403" in str(result.get("status", "")):
+            return self.error_response(
+                "Permission error",
+                "Insufficient permissions for bulk host creation. Required: 'wato.edit' and optionally "
+                "'wato.manage_hosts'",
+            )
+        return self.error_response("Bulk creation failed", f"Could not create hosts: {error_details}")
 
     async def _bulk_create_hosts(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create multiple hosts using CheckMK's bulk create API"""
@@ -451,23 +534,7 @@ class HostHandler(BaseHandler):
         if not entries:
             return self.error_response("Missing parameter", "entries list is required")
 
-        # Validate each entry
-        validation_errors = []
-        for i, entry in enumerate(entries):
-            host_name = entry.get("host_name")
-            folder = entry.get("folder", "/")
-            attributes = entry.get("attributes", {})
-
-            # Validate individual host entry
-            if not host_name:
-                validation_errors.append(f"Entry {i+1}: host_name is required")
-            elif not self._validate_host_name(host_name):
-                validation_errors.append(f"Entry {i+1}: Invalid host name '{host_name}'")
-
-            # Validate IP address if provided
-            if "ipaddress" in attributes and not self._validate_ip_address(attributes["ipaddress"]):
-                validation_errors.append(f"Entry {i+1}: Invalid IP address '{attributes['ipaddress']}'")
-
+        validation_errors = self._validate_bulk_create_entries(entries)
         if validation_errors:
             return self.error_response(
                 "Validation failed", "Bulk host creation validation errors:\n• " + "\n• ".join(validation_errors)
@@ -482,7 +549,7 @@ class HostHandler(BaseHandler):
             processed_entries.append(processed_entry)
 
         # Prepare the API request data
-        data = {"entries": processed_entries}
+        data: Dict[str, Any] = {"entries": processed_entries}
 
         # Add bake_agent parameter if specified (goes in request body, not params)
         if bake_agent:
@@ -491,84 +558,130 @@ class HostHandler(BaseHandler):
         # Make the bulk create API call
         try:
             result = self.client.post("domain-types/host_config/actions/bulk-create/invoke", data=data)
-
             if result.get("success"):
-                # Extract created hosts information
-                created_hosts = []
-                success_count = 0
-
-                # Check if response contains details about created hosts
-                response_data = result.get("data", {})
-                if isinstance(response_data, dict) and "value" in response_data:
-                    created_hosts_data = response_data["value"]
-                    if isinstance(created_hosts_data, list):
-                        success_count = len(created_hosts_data)
-                        for host_data in created_hosts_data[:10]:  # Show first 10
-                            host_id = host_data.get("id", "Unknown")
-                            folder_path = host_data.get("extensions", {}).get("folder", "/")
-                            created_hosts.append(f"• {host_id} (Folder: {folder_path})")
-                    else:
-                        success_count = len(entries)  # Fallback
-                else:
-                    success_count = len(entries)  # Fallback if no detailed response
-
-                # Build success response
-                response_text = f"✅ **Bulk Host Creation Successful**\n\n"
-                response_text += f"**Hosts Created:** {success_count}/{len(entries)}\n"
-
-                if bake_agent:
-                    response_text += f"**Agent Baking:** Enabled (process started in background)\n"
-
-                response_text += f"\n📋 **Created Hosts:**\n"
-
-                if created_hosts:
-                    response_text += "\n".join(created_hosts)
-                    if len(entries) > 10:
-                        response_text += f"\n... and {len(entries) - 10} more hosts"
-                else:
-                    # Fallback: show requested host names
-                    for i, entry in enumerate(entries[:10]):
-                        host_name = entry.get("host_name", f"Host-{i+1}")
-                        folder = entry.get("folder", "/")
-                        response_text += f"• {host_name} (Folder: {folder})\n"
-                    if len(entries) > 10:
-                        response_text += f"... and {len(entries) - 10} more hosts\n"
-
-                response_text += f"\n⚠️ **Remember to activate changes!**\n\n"
-                response_text += f"💡 **Next Steps:**\n"
-                response_text += f"1️⃣ Use 'get_pending_changes' to review all changes\n"
-                response_text += f"2️⃣ Use 'activate_changes' to apply configuration\n"
-
-                if bake_agent:
-                    response_text += f"3️⃣ Monitor agent baking progress in CheckMK GUI"
-
-                return [{"type": "text", "text": response_text}]
-
-            else:
-                # Handle API errors
-                error_details = result.get("data", {})
-                error_message = str(error_details)
-
-                # Check for specific error conditions
-                if "already exists" in error_message.lower():
-                    return self.error_response(
-                        "Duplicate host error", f"One or more hosts already exist. Details: {error_details}"
-                    )
-                elif "validation" in error_message.lower() or "400" in str(result.get("status", "")):
-                    return self.error_response(
-                        "Validation error", f"CheckMK validation failed for bulk host creation: {error_details}"
-                    )
-                elif "permission" in error_message.lower() or "403" in str(result.get("status", "")):
-                    return self.error_response(
-                        "Permission error",
-                        "Insufficient permissions for bulk host creation. Required: 'wato.edit' and optionally 'wato.manage_hosts'",
-                    )
-                else:
-                    return self.error_response("Bulk creation failed", f"Could not create hosts: {error_details}")
-
+                return self._format_bulk_create_success(result, entries, bake_agent)
+            return self._format_bulk_create_error(result)
         except Exception as e:
             self.logger.exception("Bulk host creation failed")
-            return self.error_response("Operation failed", f"Unexpected error during bulk host creation: {str(e)}")
+            return self.error_response("Operation failed", f"Unexpected error during bulk host creation: {e}")
+
+    def _validate_update_request(
+        self, host_name: Optional[str], attributes: Dict[str, Any], update_mode: str, remove_attributes: List[str]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Run every pre-flight check for a host update; None means all clear."""
+        if not host_name:
+            return self.error_response("Missing parameter", "host_name is required")
+
+        validation_errors = self._validate_host_update_attributes(attributes)
+        if validation_errors:
+            return self.error_response("Validation failed", "\n".join(validation_errors))
+
+        return self._validate_update_mode_combo(update_mode, attributes, remove_attributes)
+
+    def _validate_update_mode_combo(
+        self, update_mode: str, attributes: Dict[str, Any], remove_attributes: List[str]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Reject attribute/remove_attributes combinations invalid for the given mode.
+
+        Note: CheckMK 2.2.0p7+ does not support simultaneous use of attributes,
+        update_attributes, and remove_attributes.
+        """
+        if update_mode == "overwrite" and remove_attributes:
+            return self.error_response(
+                "Invalid combination",
+                "Cannot use 'remove_attributes' with 'overwrite' mode. Use 'remove' mode instead.",
+            )
+        if update_mode == "remove" and attributes:
+            return self.error_response(
+                "Invalid combination", "Cannot specify 'attributes' with 'remove' mode. Use 'update' mode instead."
+            )
+        if update_mode == "remove" and not remove_attributes:
+            return self.error_response("Missing parameter", "remove_attributes is required for 'remove' mode")
+        if update_mode not in ("overwrite", "remove") and remove_attributes:
+            return self.error_response(
+                "Invalid combination",
+                "Cannot use 'remove_attributes' with 'update' mode. Use 'remove' mode instead.",
+            )
+        return None
+
+    def _build_update_payload(
+        self, update_mode: str, attributes: Dict[str, Any], remove_attributes: List[str]
+    ) -> Tuple[Dict[str, Any], str]:
+        """Build the CheckMK request body and a human description for the update mode.
+
+        Assumes _validate_update_mode_combo already accepted this combination.
+        """
+        if update_mode == "overwrite":
+            # Use 'attributes' to completely replace all attributes
+            return {"attributes": attributes}, "Complete replacement of host attributes"
+        if update_mode == "remove":
+            # Use 'remove_attributes' to remove specific attributes
+            return {"remove_attributes": remove_attributes}, f"Removing attributes: {', '.join(remove_attributes)}"
+        # update mode (default): use 'update_attributes' to merge with existing attributes
+        return {"update_attributes": attributes}, "Merging with existing host attributes"
+
+    def _extract_update_etag(self, current_config: Dict[str, Any]) -> str:
+        """Read the ETag for If-Match, falling back to the object body's meta_data."""
+        etag = current_config.get("headers", {}).get("ETag")
+        if etag:
+            return str(etag)
+        etag = current_config["data"].get("extensions", {}).get("meta_data", {}).get("etag")
+        if not etag:
+            # Fallback: try legacy location or warn
+            self.logger.debug("No ETag found in host config, this may cause issues with concurrent updates")
+        return str(etag) if etag else ""
+
+    def _compute_update_changes(
+        self,
+        update_mode: str,
+        current_attributes: Dict[str, Any],
+        attributes: Dict[str, Any],
+        remove_attributes: List[str],
+    ) -> Dict[str, Any]:
+        """Work out what an update call actually changed, based on its mode."""
+        if update_mode == "update":
+            return self._compare_attributes(current_attributes, {**current_attributes, **attributes})
+        if update_mode == "overwrite":
+            return self._compare_attributes(current_attributes, attributes)
+        # remove
+        removed_attrs = {attr: current_attributes.get(attr) for attr in remove_attributes if attr in current_attributes}
+        return {"has_changes": bool(removed_attrs), "removed": removed_attrs, "added": {}, "modified": {}}
+
+    def _format_update_success(
+        self, host_name: str, update_mode: str, operation_description: str, changes: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Build the success response for a host update call."""
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"✅ **Host Updated Successfully**\n\n"
+                    f"**Host:** {host_name}\n"
+                    f"**Update Mode:** {update_mode}\n"
+                    f"**Operation:** {operation_description}\n\n"
+                    f"📋 **Changes Applied:**\n"
+                    + (self._format_attribute_changes(changes) if changes["has_changes"] else "No changes detected")
+                    + "\n\n⚠️ **Remember to activate changes!**\n"
+                    "💡 Use 'vibemk_activate_changes' to apply the configuration"
+                ),
+            }
+        ]
+
+    def _format_update_error(self, host_name: str, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Build the error response for a failed host update call."""
+        error_details = result.get("data", {})
+        error_message = str(error_details)
+
+        if "ETag" in error_message or "If-Match" in error_message:
+            return self.error_response(
+                "Concurrent modification detected",
+                f"Host '{host_name}' was modified by another process. Please retry the operation.",
+            )
+        if "400" in str(result.get("status", "")):
+            return self.error_response(
+                "Invalid request", f"CheckMK API validation failed for host '{host_name}': {error_details}"
+            )
+        return self.error_response("Host update failed", f"Could not update host '{host_name}': {error_details}")
 
     async def _update_host(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update host configuration with proper CheckMK API compliance"""
@@ -577,133 +690,33 @@ class HostHandler(BaseHandler):
         update_mode = arguments.get("update_mode", "update")  # update, overwrite, remove
         remove_attributes = arguments.get("remove_attributes", [])
 
-        if not host_name:
-            return self.error_response("Missing parameter", "host_name is required")
-
-        # Validate specific attributes (alias, tag, ipaddress, site)
-        validation_errors = self._validate_host_update_attributes(attributes)
-        if validation_errors:
-            return self.error_response("Validation failed", "\n".join(validation_errors))
+        validation_error = self._validate_update_request(host_name, attributes, update_mode, remove_attributes)
+        if validation_error:
+            return validation_error
+        assert host_name  # narrowed by _validate_update_request's own guard above
 
         # Get current host configuration with ETag for proper concurrency control
         current_config = self.client.get(f"objects/host_config/{host_name}")
         if not current_config.get("success"):
             return self.error_response("Host not found", f"Host '{host_name}' not found")
 
-        # Extract ETag for If-Match header (required by CheckMK API)
-        etag = current_config.get("headers", {}).get("ETag")
-        if not etag:
-            # Fallback: try legacy location or warn
-            etag = current_config["data"].get("extensions", {}).get("meta_data", {}).get("etag")
-            if not etag:
-                self.logger.debug("No ETag found in host config, this may cause issues with concurrent updates")
-
+        etag = self._extract_update_etag(current_config)
         current_attributes = current_config["data"].get("extensions", {}).get("attributes", {})
-
-        # Build proper CheckMK API request based on update mode
-        # Note: CheckMK 2.2.0p7+ does not support simultaneous use of attributes, update_attributes, and remove_attributes
-        if update_mode == "overwrite":
-            # Use 'attributes' to completely replace all attributes
-            if remove_attributes:
-                return self.error_response(
-                    "Invalid combination",
-                    "Cannot use 'remove_attributes' with 'overwrite' mode. Use 'remove' mode instead.",
-                )
-            data = {"attributes": attributes}
-            operation_description = "Complete replacement of host attributes"
-
-        elif update_mode == "remove":
-            # Use 'remove_attributes' to remove specific attributes
-            if attributes:
-                return self.error_response(
-                    "Invalid combination", "Cannot specify 'attributes' with 'remove' mode. Use 'update' mode instead."
-                )
-            if not remove_attributes:
-                return self.error_response("Missing parameter", "remove_attributes is required for 'remove' mode")
-            data = {"remove_attributes": remove_attributes}
-            operation_description = f"Removing attributes: {', '.join(remove_attributes)}"
-
-        else:  # update mode (default)
-            # Use 'update_attributes' to merge with existing attributes
-            if remove_attributes:
-                return self.error_response(
-                    "Invalid combination",
-                    "Cannot use 'remove_attributes' with 'update' mode. Use 'remove' mode instead.",
-                )
-            data = {"update_attributes": attributes}
-            operation_description = "Merging with existing host attributes"
-
-        # Prepare headers with ETag if available
-        headers = {}
-        if etag:
-            headers["If-Match"] = etag
+        data, operation_description = self._build_update_payload(update_mode, attributes, remove_attributes)
+        headers = {"If-Match": etag} if etag else {}
 
         # Perform the update with proper error handling
         try:
             result = self.client.put(f"objects/host_config/{host_name}", data=data, headers=headers)
-
             if result.get("success"):
-                # Calculate what actually changed for better user feedback
-                if update_mode == "update":
-                    changes = self._compare_attributes(current_attributes, {**current_attributes, **attributes})
-                elif update_mode == "overwrite":
-                    changes = self._compare_attributes(current_attributes, attributes)
-                else:  # remove
-                    removed_attrs = {
-                        attr: current_attributes.get(attr) for attr in remove_attributes if attr in current_attributes
-                    }
-                    changes = {
-                        "has_changes": bool(removed_attrs),
-                        "removed": removed_attrs,
-                        "added": {},
-                        "modified": {},
-                    }
-
-                return [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"✅ **Host Updated Successfully**\n\n"
-                            f"**Host:** {host_name}\n"
-                            f"**Update Mode:** {update_mode}\n"
-                            f"**Operation:** {operation_description}\n\n"
-                            f"📋 **Changes Applied:**\n"
-                            + (
-                                self._format_attribute_changes(changes)
-                                if changes["has_changes"]
-                                else "No changes detected"
-                            )
-                            + f"\n\n⚠️ **Remember to activate changes!**\n"
-                            f"💡 Use 'vibemk_activate_changes' to apply the configuration"
-                        ),
-                    }
-                ]
-            else:
-                error_details = result.get("data", {})
-                # Enhanced error handling for common CheckMK API issues
-                error_message = str(error_details)
-
-                if "ETag" in error_message or "If-Match" in error_message:
-                    return self.error_response(
-                        "Concurrent modification detected",
-                        f"Host '{host_name}' was modified by another process. Please retry the operation.",
-                    )
-                elif "400" in str(result.get("status", "")):
-                    return self.error_response(
-                        "Invalid request", f"CheckMK API validation failed for host '{host_name}': {error_details}"
-                    )
-                else:
-                    return self.error_response(
-                        "Host update failed", f"Could not update host '{host_name}': {error_details}"
-                    )
-
+                changes = self._compute_update_changes(update_mode, current_attributes, attributes, remove_attributes)
+                return self._format_update_success(host_name, update_mode, operation_description, changes)
+            return self._format_update_error(host_name, result)
         except Exception as e:
-            self.logger.exception(f"Host update operation failed for {host_name}")
-            return self.error_response(
-                "Update operation failed", f"Unexpected error updating host '{host_name}': {str(e)}"
-            )
+            self.logger.exception("Host update operation failed for %s", host_name)
+            return self.error_response("Update operation failed", f"Unexpected error updating host '{host_name}': {e}")
 
-    async def _delete_host(self, host_name: str) -> List[Dict[str, Any]]:
+    async def _delete_host(self, host_name: Optional[str]) -> List[Dict[str, Any]]:
         """Delete a host"""
         if not host_name:
             return self.error_response("Missing parameter", "host_name is required")
@@ -724,8 +737,7 @@ class HostHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            return self.error_response("Host deletion failed", f"Could not delete host '{host_name}'")
+        return self.error_response("Host deletion failed", f"Could not delete host '{host_name}'")
 
     async def _move_host(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Move host to different folder"""
@@ -744,8 +756,7 @@ class HostHandler(BaseHandler):
                 "Host Moved Successfully",
                 {"host": host_name, "folder": target_folder, "message": "Remember to activate changes!"},
             )
-        else:
-            return self.error_response("Host move failed", f"Could not move host '{host_name}'")
+        return self.error_response("Host move failed", f"Could not move host '{host_name}'")
 
     async def _bulk_update_hosts(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Bulk update multiple hosts"""
@@ -761,8 +772,7 @@ class HostHandler(BaseHandler):
             return self.success_response(
                 "Bulk Update Successful", {"updated": len(entries), "message": "Remember to activate changes!"}
             )
-        else:
-            return self.error_response("Bulk update failed", "Could not update hosts")
+        return self.error_response("Bulk update failed", "Could not update hosts")
 
     async def _create_cluster_host(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create a cluster host with nodes"""
@@ -807,11 +817,10 @@ class HostHandler(BaseHandler):
                     ),
                 }
             ]
-        else:
-            error_details = result.get("data", {})
-            return self.error_response(
-                "Cluster host creation failed", f"Could not create cluster host '{host_name}': {error_details}"
-            )
+        error_details = result.get("data", {})
+        return self.error_response(
+            "Cluster host creation failed", f"Could not create cluster host '{host_name}': {error_details}"
+        )
 
     async def _validate_host_config(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Validate host configuration before applying changes"""
@@ -830,9 +839,8 @@ class HostHandler(BaseHandler):
             validation_errors.append("Invalid host name format")
 
         # IP address validation
-        if "ipaddress" in attributes:
-            if not self._validate_ip_address(attributes["ipaddress"]):
-                validation_errors.append("Invalid IP address format")
+        if "ipaddress" in attributes and not self._validate_ip_address(attributes["ipaddress"]):
+            validation_errors.append("Invalid IP address format")
 
         # Folder validation
         folder = arguments.get("folder", "/")
@@ -848,7 +856,7 @@ class HostHandler(BaseHandler):
         # Compile validation results
         status = "valid" if not validation_errors else "invalid"
 
-        response_text = f"🔍 **Host Configuration Validation**\n\n"
+        response_text = "🔍 **Host Configuration Validation**\n\n"
         response_text += f"**Host:** {host_name}\n"
         response_text += f"**Operation:** {operation}\n"
         response_text += f"**Status:** {'✅ Valid' if status == 'valid' else '❌ Invalid'}\n\n"
@@ -888,7 +896,7 @@ class HostHandler(BaseHandler):
         # Compare states
         comparison = self._compare_attributes(current_attributes, desired_attributes)
 
-        response_text = f"🔄 **Host State Comparison**\n\n"
+        response_text = "🔄 **Host State Comparison**\n\n"
         response_text += f"**Host:** {host_name}\n"
         response_text += f"**Changes Required:** {'Yes' if comparison['has_changes'] else 'No'}\n\n"
 
@@ -934,7 +942,7 @@ class HostHandler(BaseHandler):
         effective_attributes.update(inherited_attributes)
         effective_attributes.update(attributes)
 
-        response_text = f"📋 **Effective Host Attributes**\n\n"
+        response_text = "📋 **Effective Host Attributes**\n\n"
         response_text += f"**Host:** {host_name}\n"
         response_text += f"**Folder:** {folder_path}\n\n"
 
@@ -944,12 +952,12 @@ class HostHandler(BaseHandler):
                 source = "Host" if key in attributes else "Inherited"
                 response_text += f"• **{key}:** {value} _{source}_\n"
         else:
-            response_text += "ℹ️ No attributes configured"
+            response_text += "💡 No attributes configured"
 
         return [{"type": "text", "text": response_text}]
 
     def _validate_host_creation_params(
-        self, host_name: str, folder: str, attributes: Dict[str, Any]
+        self, host_name: Optional[str], _folder: str, attributes: Dict[str, Any]
     ) -> Optional[List[Dict[str, Any]]]:
         """Validate parameters for host creation"""
         if not host_name:
@@ -971,8 +979,6 @@ class HostHandler(BaseHandler):
         if not host_name:
             return False
 
-        import re
-
         # CheckMK host name pattern: letters, numbers, hyphens, underscores, dots
         pattern = r"^[a-zA-Z0-9._-]+$"
         return re.match(pattern, host_name) is not None
@@ -980,25 +986,26 @@ class HostHandler(BaseHandler):
     def _validate_ip_address(self, ip_address: str) -> bool:
         """Validate IP address format"""
         try:
-            import ipaddress
-
             ipaddress.ip_address(ip_address)
-            return True
         except ValueError:
             return False
+        else:
+            return True
 
     def _validate_folder_exists(self, folder: str) -> bool:
         """Check if folder exists (basic validation)"""
         try:
             folder_path = folder if folder != "/" else "~"
             result = self.client.get(f"objects/folder_config/{folder_path}")
-            return result.get("success", False)
-        except:
+            return bool(result.get("success", False))
+        except Exception:
+            # Best-effort check used only to produce a warning; any lookup failure
+            # (network, permissions, 404, ...) means we simply can't confirm it.
             return False
 
     def _compare_attributes(self, current: Dict[str, Any], desired: Dict[str, Any]) -> Dict[str, Any]:
         """Compare current and desired attributes"""
-        changes = {"has_changes": False, "added": {}, "modified": {}, "removed": {}}
+        changes: Dict[str, Any] = {"has_changes": False, "added": {}, "modified": {}, "removed": {}}
 
         # Find added and modified attributes
         for key, value in desired.items():
@@ -1010,9 +1017,9 @@ class HostHandler(BaseHandler):
                 changes["has_changes"] = True
 
         # Find removed attributes
-        for key in current:
+        for key, value in current.items():
             if key not in desired:
-                changes["removed"][key] = current[key]
+                changes["removed"][key] = value
                 changes["has_changes"] = True
 
         return changes
@@ -1037,6 +1044,19 @@ class HostHandler(BaseHandler):
                 output += f"• {key}: {value}\n"
 
         return output
+
+    def _validate_tag_attribute(self, key: str, value: Any) -> List[str]:
+        """Validate a single tag_* attribute; returns any error messages found."""
+        errors = []
+        if key.startswith("tag_"):
+            tag_name = key[4:]  # Remove 'tag_' prefix
+            if not self._validate_tag_name(tag_name):
+                errors.append(f"Invalid tag name: '{tag_name}'. Must contain only letters, numbers, and underscores")
+            if not isinstance(value, str):
+                errors.append(f"Tag value for '{key}' must be a string")
+        elif key in ("tag", "tags"):
+            errors.append(f"Tag attributes must be prefixed with 'tag_'. Use 'tag_{key}' instead of '{key}'")
+        return errors
 
     def _validate_host_update_attributes(self, attributes: Dict[str, Any]) -> List[str]:
         """Validate host update attributes for common CheckMK attributes"""
@@ -1063,21 +1083,12 @@ class HostHandler(BaseHandler):
             alias = attributes["alias"]
             if not isinstance(alias, str):
                 errors.append("Alias must be a string")
-            elif len(alias) > 255:
-                errors.append("Alias cannot be longer than 255 characters")
+            elif len(alias) > self._MAX_ALIAS_LENGTH:
+                errors.append(f"Alias cannot be longer than {self._MAX_ALIAS_LENGTH} characters")
 
         # Validate tag attributes (tags must be prefixed with 'tag_')
         for key, value in attributes.items():
-            if key.startswith("tag_"):
-                tag_name = key[4:]  # Remove 'tag_' prefix
-                if not self._validate_tag_name(tag_name):
-                    errors.append(
-                        f"Invalid tag name: '{tag_name}'. Must contain only letters, numbers, and underscores"
-                    )
-                if not isinstance(value, str):
-                    errors.append(f"Tag value for '{key}' must be a string")
-            elif key in ["tag", "tags"]:
-                errors.append(f"Tag attributes must be prefixed with 'tag_'. Use 'tag_{key}' instead of '{key}'")
+            errors.extend(self._validate_tag_attribute(key, value))
 
         return errors
 
@@ -1085,8 +1096,6 @@ class HostHandler(BaseHandler):
         """Validate CheckMK site name format"""
         if not site_name:
             return False
-
-        import re
 
         # CheckMK site name pattern: letters, numbers, underscores
         pattern = r"^[a-zA-Z0-9_]+$"
@@ -1096,8 +1105,6 @@ class HostHandler(BaseHandler):
         """Validate CheckMK tag name format"""
         if not tag_name:
             return False
-
-        import re
 
         # CheckMK tag name pattern: letters, numbers, underscores
         pattern = r"^[a-zA-Z0-9_]+$"
