@@ -250,7 +250,6 @@ class CheckMKMCPServer:
             # Service management tools
             "vibemk_get_checkmk_services": self.service_handler,
             "vibemk_get_service_status": self.service_handler,
-            "vibemk_discover_services": self.service_handler,
             # Monitoring and problems
             "vibemk_get_current_problems": self.monitoring_handler,
             "vibemk_acknowledge_problem": self.monitoring_handler,
