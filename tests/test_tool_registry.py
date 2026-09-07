@@ -70,6 +70,16 @@ def test_every_tool_has_a_usable_schema():
             assert required in properties, f"{name} requires '{required}' but never defines it"
 
 
+def test_every_tool_name_keeps_the_vibemk_prefix():
+    """The vibemk_ prefix is the compatibility surface for every existing client.
+
+    Nothing else in the suite pins this: a tool renamed together with its
+    registry key would otherwise pass every other structural guard here.
+    """
+    unprefixed = sorted(tool["name"] for tool in get_all_tools() if not tool["name"].startswith("vibemk_"))
+    assert unprefixed == [], f"missing the vibemk_ prefix: {unprefixed}"
+
+
 def test_repository_root_is_not_a_python_package():
     """The checkout directory must not be importable as a package.
 

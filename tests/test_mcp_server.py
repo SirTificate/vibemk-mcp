@@ -88,6 +88,15 @@ class TestProtocol:
 
         assert response["error"]["code"] == -32600
 
+    @pytest.mark.asyncio
+    async def test_request_without_method_field_is_invalid(self):
+        """`method = request["method"]` sits right after this guard, outside the
+        try/except. Without the guard a missing method raises KeyError, which
+        escapes handle() entirely instead of producing a -32600 response."""
+        response = await make_dispatcher().handle({"jsonrpc": "2.0", "id": "test-5"})
+
+        assert response["error"]["code"] == -32600
+
 
 class TestToolCalls:
     @pytest.mark.asyncio
