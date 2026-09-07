@@ -14,6 +14,7 @@ removed, so every other setting (strict mode, rule selection, the tests.*
 override, ...) still applies and the result reflects the module's true state.
 """
 
+import importlib.util
 import pathlib
 import re
 import shutil
@@ -25,6 +26,21 @@ from typing import List
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def requires(tool: str) -> None:
+    """Skip when the checker is absent instead of misreading its silence.
+
+    These guards shell out to mypy and ruff. Neither is in the `test` extra —
+    the test matrix spans interpreters the pinned versions do not support — so
+    in that job the subprocess produces no output. Empty output is
+    indistinguishable from "no findings", which would make every exception-list
+    entry look stale and fail the build for the wrong reason. The lint job runs
+    this file with both tools installed; that is where the guard has teeth.
+    """
+    if importlib.util.find_spec(tool) is None:
+        pytest.skip(f"{tool} is not installed; the lint job runs this guard")
+
 
 MYPY_OVERRIDE_RE = re.compile(
     r"\[\[tool\.mypy\.overrides\]\]\s*\nmodule\s*=\s*\[(.*?)\]\s*\nignore_errors\s*=\s*true",
@@ -48,6 +64,8 @@ def module_to_path(module: str) -> pathlib.Path:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="mypy invocation differs on Windows")
 def test_every_mypy_exception_is_still_needed() -> None:
+    requires("mypy")
+
     modules = read_mypy_exceptions()
     stale = []
 
@@ -90,6 +108,8 @@ def test_every_mypy_exception_is_still_needed() -> None:
 
 
 def test_every_ruff_exception_is_still_needed() -> None:
+    requires("ruff")
+
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     block = RUFF_IGNORES_RE.search(text)
     stale = []

@@ -50,6 +50,14 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}
 
+    # The exception-list guard shells out to mypy and ruff, so it only has
+    # teeth where both are installed. It skips in the test matrix, which
+    # deliberately does not carry them.
+    - name: Exception lists may only shrink
+      run: pytest tests/test_lint_ratchet.py -q
+      env:
+        PYTHONPATH: ${{ github.workspace }}
+
   test:
     runs-on: ubuntu-latest
     strategy:
