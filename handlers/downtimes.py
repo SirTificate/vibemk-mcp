@@ -418,73 +418,90 @@ class DowntimeHandler(BaseHandler):
             )
 
     def _parse_downtime_times(self, start_time: str, end_time: str, duration_minutes: int) -> Dict[str, str]:
-        """Parse and convert downtime start/end times to ISO format with enhanced natural language support"""
-        import re
-        from datetime import datetime, timedelta
+        """Parse downtime start/end expressions into the UTC timestamps CheckMK expects.
 
-        # Use datetime.utcnow() to match CheckMK working example
-        default_start_time = datetime.utcnow()
-        default_end_time = default_start_time + timedelta(minutes=duration_minutes or 30)
+        Accepts ISO-8601 (with or without offset), natural language ("22:00
+        tomorrow"), and relative offsets ("+2h"). Expressions that carry no
+        offset are read as local time and converted to UTC, so the timestamps
+        sent to CheckMK always denote the instant the user meant.
+        """
+        from datetime import datetime, timedelta, timezone
 
-        # Parse start time with enhanced natural language support
-        if not start_time or start_time == "" or start_time == "now":
-            start_dt = default_start_time
+        fallback_minutes = duration_minutes or 30
+
+        # --- start ---
+        if not start_time or start_time in ("now", ""):
+            start_dt = datetime.now(timezone.utc)
         elif start_time.startswith("+"):
-            # Relative time like "+1h", "+30m" - parse as start_after
-            delta_minutes = self._parse_time_delta(start_time)
-            start_dt = datetime.utcnow() + timedelta(minutes=delta_minutes)
+            start_dt = datetime.now(timezone.utc) + timedelta(minutes=self._parse_time_delta(start_time))
         else:
-            # Enhanced natural language parsing for user-friendly formats
-            start_dt = self._parse_natural_time(start_time)
+            start_dt = self._parse_time_expression(start_time)
             if start_dt is None:
-                # Try to parse as ISO format (fallback)
-                try:
-                    if start_time.endswith("Z"):
-                        start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-                    else:
-                        start_dt = datetime.fromisoformat(start_time)
-                except ValueError:
-                    # Fallback to default start time if parsing fails
-                    self.logger.warning(f"Could not parse start_time '{start_time}', using default")
-                    start_dt = default_start_time
+                self.logger.warning("Could not parse start_time %r, using now", start_time)
+                start_dt = datetime.now(timezone.utc)
 
-        # Parse end time with enhanced natural language support
-        if not end_time or end_time == "":
-            # If no end time specified, use start_time + duration (end_after pattern)
-            end_dt = start_dt + timedelta(minutes=duration_minutes or 30)
+        # --- end ---
+        if not end_time:
+            end_dt = start_dt + timedelta(minutes=fallback_minutes)
         elif end_time.startswith("+"):
-            # Relative to start time (end_after pattern)
-            delta_minutes = self._parse_time_delta(end_time)
-            end_dt = start_dt + timedelta(minutes=delta_minutes)
+            end_dt = start_dt + timedelta(minutes=self._parse_time_delta(end_time))
         else:
-            # Enhanced natural language parsing for end time
-            end_dt = self._parse_natural_time(end_time)
+            end_dt = self._parse_time_expression(end_time)
             if end_dt is None:
-                # Try to parse as ISO format (fallback)
-                try:
-                    if end_time.endswith("Z"):
-                        end_dt = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
-                    else:
-                        end_dt = datetime.fromisoformat(end_time)
-                except ValueError:
-                    # Fallback to start + duration
-                    self.logger.warning(f"Could not parse end_time '{end_time}', using start + duration")
-                    end_dt = start_dt + timedelta(minutes=duration_minutes or 30)
+                self.logger.warning("Could not parse end_time %r, using start + duration", end_time)
+                end_dt = start_dt + timedelta(minutes=fallback_minutes)
 
-        # Ensure end time is after start time
+        # Both values are timezone-aware, so this comparison is always well-defined.
         if end_dt <= start_dt:
-            self.logger.warning("End time is before start time, adjusting")
-            end_dt = start_dt + timedelta(minutes=duration_minutes or 30)
+            self.logger.warning("End time is not after start time, extending by %d minutes", fallback_minutes)
+            end_dt = start_dt + timedelta(minutes=fallback_minutes)
 
-        # Return in CheckMK API format (ISO with Z suffix)
         return {
-            "start_time": start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "end_time": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "start_time": self._to_utc_z(start_dt),
+            "end_time": self._to_utc_z(end_dt),
         }
+
+    @staticmethod
+    def _to_utc_z(value: "datetime.datetime") -> str:
+        """Render an aware datetime in the UTC 'Z' format CheckMK accepts."""
+        from datetime import timezone
+
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _parse_time_expression(self, time_str: str) -> "datetime.datetime":
+        """Parse a single time expression into an aware datetime, or None.
+
+        ISO-8601 is tried first: an explicit date must never be reinterpreted
+        by the natural-language patterns, which only understand times of day.
+        """
+        return self._parse_iso_datetime(time_str) or self._parse_natural_time(time_str)
+
+    @staticmethod
+    def _parse_iso_datetime(time_str: str) -> "datetime.datetime":
+        """Parse an ISO-8601 timestamp into an aware datetime, or None.
+
+        A value without an offset is read as local time.
+        """
+        from datetime import datetime
+
+        if not time_str:
+            return None
+        candidate = time_str.strip()
+        if candidate.endswith(("Z", "z")):
+            candidate = candidate[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            return None
+        # A bare date ("2026-12-24") is a valid ISO value but almost never what
+        # a downtime request means, so leave it to the natural-language pass.
+        if parsed.tzinfo is None:
+            return parsed.astimezone()
+        return parsed
 
     def _parse_natural_time(self, time_str: str) -> "datetime.datetime":
         """
-        Parse natural language time expressions into datetime objects.
+        Parse natural language time expressions into aware datetimes (local zone).
 
         Supports formats like:
         - "22:00 today" / "22:00" (today at specified time)
@@ -492,6 +509,8 @@ class DowntimeHandler(BaseHandler):
         - "monday at 09:00" / "next monday at 09:00"
         - "2024-08-23 at 22:00" (specific date)
         - "in 2 hours" / "in 30 minutes"
+
+        Returns None when nothing matches, so callers can fall back.
         """
         import re
         from datetime import datetime, timedelta
@@ -500,100 +519,69 @@ class DowntimeHandler(BaseHandler):
             return None
 
         time_str = time_str.strip().lower()
-        now = datetime.now()
+        now = datetime.now().astimezone()
+        weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
-        # Pattern 1: "HH:MM today" or "HH:MM" or "today at HH:MM"
-        time_pattern = r"(?:today\s+at\s+|at\s+)?(\d{1,2}):(\d{2})(?:\s+today)?"
-        match = re.search(time_pattern, time_str)
-        if (
-            match
-            and "today" in time_str
-            or (
-                match
-                and not any(
-                    word in time_str
-                    for word in [
-                        "tomorrow",
-                        "monday",
-                        "tuesday",
-                        "wednesday",
-                        "thursday",
-                        "friday",
-                        "saturday",
-                        "sunday",
-                    ]
-                )
-            )
-        ):
-            hour, minute = int(match.group(1)), int(match.group(2))
-            if 0 <= hour <= 23 and 0 <= minute <= 59:
-                target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                # If the time has already passed today, schedule for tomorrow
-                if target_time <= now:
-                    target_time += timedelta(days=1)
-                return target_time
+        def local(value: "datetime.datetime") -> "datetime.datetime":
+            """Attach the local zone to a naive datetime."""
+            return value.astimezone() if value.tzinfo is None else value
 
-        # Pattern 2: "HH:MM tomorrow" or "tomorrow at HH:MM"
-        tomorrow_pattern = (
-            r"(?:tomorrow\s+at\s+|at\s+)?(\d{1,2}):(\d{2})(?:\s+tomorrow)?|tomorrow(?:\s+at\s+(\d{1,2}):(\d{2}))?"
-        )
-        match = re.search(tomorrow_pattern, time_str)
-        if match and "tomorrow" in time_str:
-            if match.group(1) and match.group(2):  # "HH:MM tomorrow"
-                hour, minute = int(match.group(1)), int(match.group(2))
-            elif match.group(3) and match.group(4):  # "tomorrow at HH:MM"
-                hour, minute = int(match.group(3)), int(match.group(4))
-            else:  # just "tomorrow" - default to same time tomorrow
-                hour, minute = now.hour, now.minute
-
-            if 0 <= hour <= 23 and 0 <= minute <= 59:
-                tomorrow = now + timedelta(days=1)
-                return tomorrow.replace(hour=hour, minute=minute, second=0, microsecond=0)
-
-        # Pattern 3: Specific date formats "YYYY-MM-DD at HH:MM"
-        date_time_pattern = r"(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+at\s+(\d{1,2}):(\d{2}))?"
-        match = re.search(date_time_pattern, time_str)
+        # Pattern 1: explicit calendar date, e.g. "2026-12-24 at 22:00".
+        # Checked first so a named date is never reduced to a time of day.
+        match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:[\sT]+(?:at\s+)?(\d{1,2}):(\d{2}))?", time_str)
         if match:
             year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
             hour = int(match.group(4)) if match.group(4) else now.hour
             minute = int(match.group(5)) if match.group(5) else now.minute
-
             try:
-                return datetime(year, month, day, hour, minute)
+                return local(datetime(year, month, day, hour, minute))
             except ValueError:
                 pass  # Invalid date, fall through
 
-        # Pattern 4: "in X hours/minutes"
-        relative_pattern = r"in\s+(\d+)\s+(hour|hours|minute|minutes|min)"
-        match = re.search(relative_pattern, time_str)
+        # Pattern 2: "in X hours/minutes"
+        match = re.search(r"in\s+(\d+)\s+(hour|hours|minute|minutes|min)", time_str)
         if match:
             amount = int(match.group(1))
-            unit = match.group(2)
-            if "hour" in unit:
+            if "hour" in match.group(2):
                 return now + timedelta(hours=amount)
-            elif "minute" in unit or "min" in unit:
-                return now + timedelta(minutes=amount)
+            return now + timedelta(minutes=amount)
 
-        # Pattern 5: Day names "monday at 09:00", "next tuesday at 14:30"
-        weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-        for i, day_name in enumerate(weekdays):
-            day_pattern = rf"(?:next\s+)?{day_name}(?:\s+at\s+(\d{{1,2}}):(\d{{2}}))?"
-            match = re.search(day_pattern, time_str)
-            if match:
-                # Calculate days until target weekday
-                days_ahead = i - now.weekday()
-                if days_ahead <= 0 or "next" in time_str:  # Target day already passed this week or "next" specified
-                    days_ahead += 7
+        # Pattern 3: "HH:MM tomorrow" / "tomorrow at HH:MM" / bare "tomorrow"
+        if "tomorrow" in time_str:
+            match = re.search(r"(\d{1,2}):(\d{2})", time_str)
+            hour, minute = (int(match.group(1)), int(match.group(2))) if match else (now.hour, now.minute)
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                tomorrow = now + timedelta(days=1)
+                return tomorrow.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
-                target_date = now + timedelta(days=days_ahead)
+        # Pattern 4: weekday names, e.g. "monday at 09:00", "next tuesday at 14:30"
+        for index, day_name in enumerate(weekdays):
+            if day_name not in time_str:
+                continue
+            match = re.search(rf"(?:next\s+)?{day_name}(?:\s+at\s+(\d{{1,2}}):(\d{{2}}))?", time_str)
+            if not match:
+                continue
+            days_ahead = index - now.weekday()
+            if days_ahead <= 0 or "next" in time_str:
+                days_ahead += 7
+            target_date = now + timedelta(days=days_ahead)
+            if match.group(1) and match.group(2):
+                hour, minute = int(match.group(1)), int(match.group(2))
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    target_date = target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            return target_date
 
-                # Extract time if provided, otherwise use current time
-                if match.group(1) and match.group(2):
-                    hour, minute = int(match.group(1)), int(match.group(2))
-                    if 0 <= hour <= 23 and 0 <= minute <= 59:
-                        target_date = target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
-
-                return target_date
+        # Pattern 5: bare time of day, e.g. "22:00", "at 22:00", "22:00 today".
+        # Last resort: only reached when no date and no day name was named.
+        match = re.search(r"(?:at\s+)?(\d{1,2}):(\d{2})", time_str)
+        if match:
+            hour, minute = int(match.group(1)), int(match.group(2))
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                # A time that already passed today means the next occurrence.
+                if target_time <= now and "today" not in time_str:
+                    target_time += timedelta(days=1)
+                return target_time
 
         # If no pattern matched, return None to use fallback parsing
         return None
