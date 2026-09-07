@@ -101,7 +101,7 @@ class TestCheckMKConfig:
             ("http://checkmk.local", "http://checkmk.local"),
             ("http://checkmk.local/", "http://checkmk.local"),
             ("https://checkmk.local:8080/", "https://checkmk.local:8080"),
-            ("checkmk.local", "http://checkmk.local"),  # Should add http
+            ("checkmk.local", "https://checkmk.local"),  # Bare host defaults to TLS
         ]
 
         for input_url, expected_url in test_cases:
