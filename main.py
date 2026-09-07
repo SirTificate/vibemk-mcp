@@ -21,6 +21,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 import asyncio
 import sys
 
+from config.dotenv import load_dotenv
 from mcp.server import CheckMKMCPServer
 from utils import setup_logging
 
@@ -37,6 +38,11 @@ async def main():
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
+
+    # An optional .env is read before anything consults the environment, so
+    # settings like LOGFILE take effect for this run. Real environment
+    # variables always win over the file.
+    load_dotenv()
 
     # Setup logging with debug mode if LOGFILE is specified for better troubleshooting
     import os
