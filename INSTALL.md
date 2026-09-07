@@ -54,7 +54,7 @@ A step-by-step guide for installing and configuring vibeMK for LLM interfaces.
 
 ```bash
 # Clone repository
-git clone https://github.com/chexma/vibeMK.git
+git clone https://github.com/SirTificate/vibemk-mcp.git
 cd vibeMK
 
 # Or: Download ZIP and extract

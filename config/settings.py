@@ -150,7 +150,7 @@ class MCPConfig:
     """MCP server configuration"""
 
     name: str = "vibemk"
-    version: str = "0.3.10"
+    version: str = "0.4.0"
     protocol_version: str = "2024-11-05"  # Keep stable version for now
 
     def __post_init__(self):

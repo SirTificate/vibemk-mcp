@@ -6,8 +6,8 @@ Thank you for your interest in contributing to vibeMK! This document provides gu
 
 1. **Fork the Repository**
    ```bash
-   git clone https://github.com/yourusername/vibemk.git
-   cd vibemk
+   git clone https://github.com/yourusername/vibemk-mcp.git
+   cd vibemk-mcp
    ```
 
 2. **Set Up Development Environment**

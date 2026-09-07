@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.4.0] - 2026-09-07
+
+First release of the maintained continuation at
+[SirTificate/vibemk-mcp](https://github.com/SirTificate/vibemk-mcp). Distributed under the same
+GPL-3.0 licence as the original, with its history and authorship preserved. Tool names are
+unchanged, so existing client configurations keep working.
+
 
 ### Fixed
 - Service discovery called `domain-types/service_discovery/actions/start`, which CheckMK

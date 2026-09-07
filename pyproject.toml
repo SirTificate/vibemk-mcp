@@ -3,13 +3,16 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vibemk"
-version = "0.3.10"
+name = "vibemk-mcp"
+version = "0.4.0"
 description = "vibeMK - CheckMK monitoring via LLM - MCP Server"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
 authors = [
     {name = "Andre", email = "chexma@gmx.de"}
+]
+maintainers = [
+    {name = "Steffen Konerow"}
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -28,10 +31,11 @@ dependencies = []
 requires-python = ">=3.8"
 
 [project.urls]
-Homepage = "https://github.com/chexma/vibeMK"
-Documentation = "https://github.com/chexma/vibeMK/blob/main/README.md"
-Repository = "https://github.com/chexma/vibeMK"
-Issues = "https://github.com/chexma/vibeMK/issues"
+Homepage = "https://github.com/SirTificate/vibemk-mcp"
+Documentation = "https://github.com/SirTificate/vibemk-mcp/blob/main/README.md"
+Repository = "https://github.com/SirTificate/vibemk-mcp"
+"Upstream (inactive)" = "https://github.com/chexma/vibeMK"
+Issues = "https://github.com/SirTificate/vibemk-mcp/issues"
 
 [project.scripts]
 vibemk = "main:main"

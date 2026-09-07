@@ -1,14 +1,19 @@
-# vibeMK 🚀
+# vibeMK-MCP 🚀
 
 **CheckMK Monitoring via LLM - Professional MCP Server**
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![CheckMK 2.1+](https://img.shields.io/badge/CheckMK-2.1+-green.svg)](https://checkmk.com/)
+[![CheckMK 2.4](https://img.shields.io/badge/CheckMK-2.4-green.svg)](https://checkmk.com/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://spec.modelcontextprotocol.io/)
-[![No Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](https://github.com/your-username/vibemk)
+[![No Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](https://github.com/SirTificate/vibemk-mcp)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Typed](https://img.shields.io/badge/typed-mypy-blue.svg)](https://mypy-lang.org/)
+
+> **A maintained continuation of [chexma/vibeMK](https://github.com/chexma/vibeMK)** by Andre, whose
+> last release was in August 2025. This fork keeps the project going: it carries the original work
+> forward under the same GPL-3.0 licence, preserves its history and authorship, and adds fixes
+> verified against the CheckMK 2.4 source. Tool names are unchanged (`vibemk_*`), so existing client
+> configurations keep working. If the original author resumes, everything here is offered back.
 
 ## 🎯 Overview
 
@@ -47,7 +52,7 @@ This project is in the alpha stage and under development. I accept no liability 
 ## 🚀 Quick Start
 
 ```bash
-1. git clone https://github.com/chexma/vibeMK.git
+1. git clone https://github.com/SirTificate/vibemk-mcp.git
 2. Edit the configuration file of your LLM Client, e.g. Claude Desktop - claude_desktop_config.json (See examples)
 3. Start your LLM Client
 4. CheckMK automation user setup (Administrator permissions or a customized role if changes are to be made, read-only if only analyses are to be performed.)
@@ -80,20 +85,23 @@ This project is in the alpha stage and under development. I accept no liability 
 
 ## 📚 Checkmk version compatibility
 
-| CheckMK Version | Compatibility | Features |
-|-----------------|---------------|----------|
-| **2.4.x** | ✅ Full     | All features available |
-| **2.3.x** | ✅ Full     | All features available |
-| **2.2.x** | ⚠️ Untested | |
-| **2.1.x** | ⚠️ Untested | |
-| **2.0.x** | ⚠️ Untested | |
-| **1.6.x** | 🔴 Unsupported| | 
+| CheckMK Version | Status | Notes |
+|-----------------|--------|-------|
+| **2.4.x** | ✅ Verified | Endpoints checked against the 2.4.0p2 source; tested against 2.4.0p2 CRE |
+| **2.3.x** | ⚠️ Expected to work | Same REST API version (1.0), not re-verified since the fork |
+| **2.2.x and older** | 🔴 Unsupported | |
+
+The REST API is served at version `1.0` up to and including CheckMK 2.4. CheckMK 2.5 introduces a
+versioned `v1` path that is compatible with `1.0`; support for it is not implemented yet.
 
 ## Checkmk Edition Support
 
-- **Raw Edition**: Basic functions available
-- **Enterprise Edition**: All features including BI, Agent Bakery, Metrics
-- **Cloud Edition**: All Enterprise features
+All features in this server use REST API endpoints that CheckMK registers for **every edition,
+including Raw (CRE)**. That includes Business Intelligence and the Event Console, which the original
+README listed as Enterprise-only — a mistake this fork corrects.
+
+The one genuine edition restriction is the **Agent Bakery** (`agent` endpoints), which exists only in
+the Enterprise and Cloud editions. It is not currently implemented here.
 
 ## Security considerations
 
