@@ -7,8 +7,8 @@ A step-by-step guide for installing and configuring vibeMK for LLM interfaces.
 ### System Requirements
 
 - **Operating System**: macOS, Linux, or Windows
-- **Python**: Version 3.8 or higher
-- **CheckMK**: Version 2.1.0 or higher (CE/CEE/CCE/CRE)
+- **Python**: Version 3.9 or higher
+- **CheckMK**: Version 2.3 or 2.4, any edition including Raw (2.4 is what this is verified against)
 - **LLM Client**: E.g., Claude Desktop, OpenAI API Client, etc.
 
 ### CheckMK Requirements
@@ -285,7 +285,7 @@ open -a Claude
 | "Authentication failed" | 401 Unauthorized | Check API key and username |
 | "Permission denied" | 403 Forbidden | Check user permissions in CheckMK |
 | "Python not found" | Server won't start | Check python3 installation |
-| "Module not found" | Import error | Verify Python 3.8+ installation |
+| "Module not found" | Import error | Verify Python 3.9+ installation |
 
 ### 8.2 Enable Debug Logs
 

@@ -1,90 +1,40 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-We actively maintain security updates for the following versions:
+| Version | Supported |
+| ------- | --------- |
+| 0.5.x   | ✅ |
+| < 0.5   | ❌ |
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+Only the latest release receives fixes. The project is pre-1.0 and developed by one maintainer;
+please do not read the table as a support contract.
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability in vibeMK, please report it responsibly:
+**Use GitHub's private vulnerability reporting:**
+<https://github.com/SirTificate/vibemk-mcp/security/advisories/new>
 
-### How to Report
+That opens a report only the maintainer can see. Please do not open a public issue for a security
+problem.
 
-1. **DO NOT** create a public GitHub issue for security vulnerabilities
-2. **Email** us directly at: security@your-domain.com
-3. **Include** the following information:
-   - Description of the vulnerability
-   - Steps to reproduce the issue
-   - Potential impact assessment
-   - Suggested fix (if available)
+Useful in a report: what an attacker can do, how to reproduce it, and which version you tested.
+A suggested fix is welcome but not required.
 
-### Response Timeline
+Expect an acknowledgement within a few days. This is a spare-time project, so a fix arrives when it
+arrives — you will be told either way, and credited unless you prefer otherwise.
 
-- **Acknowledgment**: Within 48 hours
-- **Initial Assessment**: Within 7 days
-- **Fix Development**: Depends on severity
-- **Disclosure**: Coordinated disclosure after fix
+## Scope
 
-### Security Best Practices
+This server hands a language model write access to a CheckMK site, so a few things are worth
+separating from vulnerabilities in the code:
 
-When using vibeMK:
+**In scope:** credential handling, the HTTP client's TLS behaviour, anything that lets a crafted
+CheckMK response or tool argument reach a shell, the filesystem, or an unintended endpoint.
 
-#### Configuration Security
-- **Never commit** `claude_desktop_config.json` with real credentials
-- **Use environment variables** for sensitive data when possible
-- **Rotate API keys** regularly
-- **Enable SSL/TLS** for production CheckMK servers
+**Not a vulnerability, but by design:** an LLM doing something destructive it was asked to do. The
+server executes the tools it is told to. Scope the automation user to what you are willing to lose,
+and read the section on security considerations in the [README](README.md).
 
-#### Network Security
-- **Restrict network access** to CheckMK servers
-- **Use HTTPS** instead of HTTP
-- **Configure firewalls** appropriately
-- **Monitor access logs**
-
-#### CheckMK Server Security
-- **Use dedicated automation users** with minimal required permissions
-- **Enable audit logging** in CheckMK
-- **Keep CheckMK updated** to latest security patches
-- **Review user permissions** regularly
-
-### Known Security Considerations
-
-#### API Key Storage
-- API keys are stored in `claude_desktop_config.json`
-- This file should have restricted file permissions (600)
-- Consider using environment variables for CI/CD environments
-
-#### Network Communications
-- All API calls to CheckMK are made over HTTP(S)
-- SSL certificate verification can be disabled (not recommended for production)
-- Consider using client certificates for additional security
-
-#### Logging
-- Server logs may contain API endpoints but not credentials
-- Debug mode may log more detailed information
-- Ensure log files have appropriate permissions
-
-### Security Updates
-
-Security updates will be:
-- Released as patch versions (e.g., 2.0.1, 2.0.2)
-- Documented in release notes
-- Announced through GitHub releases
-- Included in the main branch immediately
-
-### Acknowledgments
-
-We appreciate the security research community and will acknowledge responsible disclosure contributors (with their permission) in our security advisories.
-
-## Contact
-
-For security-related questions or concerns:
-- Email: security@your-domain.com
-- For general questions: [GitHub Issues](https://github.com/your-username/vibeMK/issues)
-
-Thank you for helping keep vibeMK secure!
+**Known and accepted:** credentials come from environment variables or a `.env` file, so anyone who
+can read the process environment or that file has the CheckMK account. There is no secret store.

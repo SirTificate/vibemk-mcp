@@ -12,8 +12,10 @@
 > **A maintained continuation of [chexma/vibeMK](https://github.com/chexma/vibeMK)** by Andre, whose
 > last release was in August 2025. This fork keeps the project going: it carries the original work
 > forward under the same GPL-3.0 licence, preserves its history and authorship, and adds fixes
-> verified against the CheckMK 2.4 source. Tool names are unchanged (`vibemk_*`), so existing client
-> configurations keep working. If the original author resumes, everything here is offered back.
+> verified against the OpenAPI document a CheckMK site publishes for itself. Tool names are
+> unchanged (`vibemk_*`), so existing client configurations keep working, with the exception of the
+> three tools listed under [Verification](#-how-this-is-verified). If the original author resumes,
+> everything here is offered back.
 
 ## 🎯 Overview
 
@@ -87,12 +89,38 @@ This project is in the alpha stage and under development. I accept no liability 
 
 | CheckMK Version | Status | Notes |
 |-----------------|--------|-------|
-| **2.4.x** | ✅ Verified | Endpoints checked against the 2.4.0p2 source; tested against 2.4.0p2 CRE |
+| **2.4.x** | ✅ Verified | All 104 endpoint calls checked against the API document of a 2.4.0p36 Raw site; read-only tools additionally exercised against it |
 | **2.3.x** | ⚠️ Expected to work | Same REST API version (1.0), not re-verified since the fork |
 | **2.2.x and older** | 🔴 Unsupported | |
 
 The REST API is served at version `1.0` up to and including CheckMK 2.4. CheckMK 2.5 introduces a
 versioned `v1` path that is compatible with `1.0`; support for it is not implemented yet.
+
+## 🔍 How this is verified
+
+A test suite that mocks the HTTP client cannot tell whether an endpoint exists — a call to a path
+CheckMK does not serve looks exactly like one that works. Seven calls in this codebase turned out to
+have nothing behind them, and no test had ever noticed.
+
+Every endpoint call is now checked against the OpenAPI document the site publishes for itself:
+
+```
+{server_url}/check_mk/api/1.0/openapi-doc.yaml
+```
+
+That document carries the exact version *and* edition, so it cannot describe an endpoint a given
+site does not have. All 104 calls match a path and a verb that 2.4.0p36 Raw serves.
+
+Three tools were removed rather than left to fail quietly, because CheckMK's REST API offers no
+equivalent: `vibemk_reschedule_check`, `vibemk_get_custom_graph` and `vibemk_search_metrics`. 114
+tools remain.
+
+There is also a read-only smoke test against a live instance, behind `LIVE_SMOKE_TEST=true` and
+deliberately kept out of CI:
+
+```bash
+LIVE_SMOKE_TEST=true python -m pytest tests/test_live_smoke.py -v
+```
 
 ## Checkmk Edition Support
 
@@ -105,9 +133,19 @@ the Enterprise and Cloud editions. It is not currently implemented here.
 
 ## Security considerations
 
-- Be aware of the potential security risks when you unleash AI on your checkmk
-- Use at your own risk
-- I accept no responsibility for actions performed by an AI
+This lets a language model create and delete hosts, rules and users in your monitoring, and
+"activate changes" is a real button.
+
+- **Start with a read-only automation user.** Widen the role later, once you have seen what the
+  model actually does with it. A custom role scoped to what you need beats an Administrator account.
+- **Keep the log.** Every tool call is recorded at INFO with its name — that log is the only record
+  of what the model did. Arguments are deliberately not logged, since they carry host names, comment
+  text and, for the password tools, secrets.
+- **Check the CheckMK audit log** after the first few sessions. It sees the changes from the other
+  side.
+- Use at your own risk. No liability is accepted for actions performed by an AI.
+
+To report a security issue, see [SECURITY.md](SECURITY.md).
 
 # 📄 License
 
