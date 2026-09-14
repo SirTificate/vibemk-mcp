@@ -43,6 +43,27 @@ All notable changes to this project will be documented in this file.
 - Four dispatch branches referenced tool names declared nowhere — three in
   `handlers/debug.py` and one leftover alias in `handlers/discovery.py`
 
+### Known issues
+- Seven endpoint calls are not served by CheckMK 2.4.0p2 Raw, found by checking all 112
+  calls in `handlers/` against the OpenAPI document the instance publishes for itself at
+  `{server_url}/check_mk/api/1.0/openapi-doc.yaml`. The affected tools are left in place
+  for now and will be re-checked against a newer CheckMK before anything is changed:
+  - deleting a downtime uses `DELETE objects/downtime/{id}`, which serves `GET` only;
+    the API deletes through `POST domain-types/downtime/actions/delete/invoke`
+  - scheduling a downtime posts to `domain-types/downtime/collections/all`, which serves
+    `GET` only; the API creates through `collections/host` and `collections/service`
+  - deleting a comment uses `DELETE objects/comment/{id}`, which serves `GET` only; the
+    API deletes through `POST domain-types/comment/actions/delete/invoke`
+  - `vibemk_reschedule_check` posts to `.../actions/reschedule_check/invoke` for hosts and
+    services. The string "reschedule" does not appear anywhere in the document: the REST
+    API offers no such operation
+  - `vibemk_search_metrics` and `vibemk_get_custom_graph` post to
+    `domain-types/metric/actions/filter/invoke` and `.../get_custom_graph/invoke`; neither
+    path exists, and `actions/get` is the only action the metric domain offers
+
+  Until then these tools report a plain failure, which reads like a transient error rather
+  than a missing capability.
+
 ### Removed
 - `_format_metric_data` and the three display limits only it used; nothing called it
 
