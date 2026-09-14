@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Rule positioning never worked. `vibemk_move_rule` sent `top`, `bottom`, `before` and
+  `after` and named its target `target_rule`; CheckMK's move endpoint discriminates on
+  `position` over exactly `top_of_folder`, `bottom_of_folder`, `after_specific_rule` and
+  `before_specific_rule`, expects the target under `rule_id`, and requires a `folder` for
+  the two folder positions that the code never sent, so every move was rejected. The
+  folder now comes from the rule itself. `vibemk_create_rule` advertised `position` and
+  never read it — the create endpoint takes no position at all, so it is honoured by
+  moving afterwards, and a failed move is reported with the rule id instead of being
+  swallowed. The short forms stay accepted and are translated
+- `vibemk_get_host_effective_attributes` reported a host's own attributes as its effective
+  ones. It fetched the folder separately to merge inherited values, addressing it as
+  `/servers/linux` where CheckMK expects `~servers~linux`, so the lookup answered 404 for
+  every host outside the root folder. CheckMK resolves the inheritance itself when asked
+- Three handler modules printed a literal `\n` instead of a line break — 55 occurrences in
+  `host_group_rules.py`, 14 in `debug.py`, 13 in `users.py` — so every affected answer
+  arrived as one unbroken run of text
+- The metrics 400 handler told users timestamps had to be `YYYY-MM-DD HH:MM:SS` long after
+  the code began sending ISO-8601 UTC, advising callers straight back into the timezone
+  bug that change had removed
 - Both downtime scheduling tools advertised a `recur` parameter the handler never read,
   so a request for a recurring weekly downtime silently produced a one-off and reported
   success. The advertised values were wrong too: CheckMK accepts `fixed`, `hour`, `day`,
@@ -24,6 +43,9 @@ All notable changes to this project will be documented in this file.
 - Four dispatch branches referenced tool names declared nowhere — three in
   `handlers/debug.py` and one leftover alias in `handlers/discovery.py`
 
+### Removed
+- `_format_metric_data` and the three display limits only it used; nothing called it
+
 ### Changed
 - `mcp/server.py` split into `transport.py` (stdio I/O), `dispatch.py` (JSON-RPC) and
   `registry.py` (tool-to-handler table); the server is now wiring only, 62 lines from 547.
@@ -38,6 +60,12 @@ All notable changes to this project will be documented in this file.
   twenty, so the registry's handler type is honest and both gain the shared helpers
 
 ### Added
+- A read-only smoke test against a real CheckMK instance, behind `LIVE_SMOKE_TEST=true`
+  and kept out of CI. The rest of the suite mocks the HTTP client and so cannot tell
+  whether CheckMK serves a path the code calls; three endpoints turned out to be dead and
+  no test noticed
+- A guard against escaped newlines in response text, checking the class rather than the
+  instances
 - mypy and ruff run in CI at their configured strictness. Both were configured and neither
   ran: the mypy step was an `echo` and ruff was never invoked, so 272 type errors and 1141
   lint findings had accumulated behind a green build. Modules not yet clean are listed
