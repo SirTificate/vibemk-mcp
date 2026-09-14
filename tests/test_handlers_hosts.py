@@ -231,3 +231,67 @@ class TestHostHandler:
         assert len(result) == 1
         assert "❌" in result[0]["text"]
         assert "Unknown tool" in result[0]["text"]
+
+
+class TestEffectiveAttributes:
+    """CheckMK resolves inheritance itself.
+
+    The handler used to fetch the folder separately and merge by hand, building
+    the folder path with "/" — but CheckMK addresses folders with "~", so
+    `objects/folder_config//servers/linux` answers 404 and every host in a
+    nested folder failed. Verified against 2.4.0p2 CRE, where passing
+    effective_attributes=true returns 27 already-resolved attributes.
+    """
+
+    @pytest.fixture
+    def handler(self, mock_checkmk_client):
+        return HostHandler(mock_checkmk_client)
+
+    @pytest.mark.asyncio
+    async def test_checkmk_resolves_the_inheritance(self, handler):
+        handler.client.get.return_value = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {
+                "extensions": {
+                    "folder": "/servers/linux",
+                    "attributes": {"alias": "set on the host"},
+                    "effective_attributes": {"alias": "set on the host", "site": "inherited from folder"},
+                }
+            },
+        }
+
+        result = await handler.handle("vibemk_get_host_effective_attributes", {"host_name": "web01"})
+
+        text = result[0]["text"]
+        assert "inherited from folder" in text
+        assert "set on the host" in text
+
+    @pytest.mark.asyncio
+    async def test_the_folder_is_not_fetched_separately(self, handler):
+        handler.client.get.return_value = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {"extensions": {"folder": "/servers/linux", "attributes": {}, "effective_attributes": {}}},
+        }
+
+        await handler.handle("vibemk_get_host_effective_attributes", {"host_name": "web01"})
+
+        paths = [c.args[0] for c in handler.client.get.call_args_list if c.args]
+        assert not [p for p in paths if "folder_config" in p], paths
+
+    @pytest.mark.asyncio
+    async def test_checkmk_is_asked_for_the_effective_attributes(self, handler):
+        handler.client.get.return_value = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {"extensions": {"folder": "/", "attributes": {}, "effective_attributes": {}}},
+        }
+
+        await handler.handle("vibemk_get_host_effective_attributes", {"host_name": "web01"})
+
+        params = handler.client.get.call_args.kwargs.get("params", {})
+        assert params.get("effective_attributes") == "true", params

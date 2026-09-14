@@ -915,32 +915,19 @@ class HostHandler(BaseHandler):
         if not host_name:
             return self.error_response("Missing parameter", "host_name is required")
 
-        # Get host configuration
-        host_config = self.client.get(f"objects/host_config/{host_name}")
+        # CheckMK resolves the inheritance itself when asked. The previous code
+        # fetched the folder separately and merged by hand, building the path as
+        # "objects/folder_config/{folder}" — but a folder reads "/servers/linux"
+        # while CheckMK addresses it as "~servers~linux", so that lookup answered
+        # 404 for every host outside the root folder.
+        host_config = self.client.get(f"objects/host_config/{host_name}", params={"effective_attributes": "true"})
         if not host_config.get("success"):
             return self.error_response("Host not found", f"Host '{host_name}' not found")
 
-        host_data = host_config["data"]
-        extensions = host_data.get("extensions", {})
+        extensions = host_config["data"].get("extensions", {})
         attributes = extensions.get("attributes", {})
         folder_path = extensions.get("folder", "/")
-
-        # Get folder configuration for inherited attributes
-        folder_config = None
-        if folder_path != "/":
-            folder_config = self.client.get(f"objects/folder_config/{folder_path}")
-
-        effective_attributes = {}
-        inherited_attributes = {}
-
-        # Add folder attributes if available
-        if folder_config and folder_config.get("success"):
-            folder_attrs = folder_config["data"].get("extensions", {}).get("attributes", {})
-            inherited_attributes.update(folder_attrs)
-
-        # Host attributes override folder attributes
-        effective_attributes.update(inherited_attributes)
-        effective_attributes.update(attributes)
+        effective_attributes = extensions.get("effective_attributes", {}) or attributes
 
         response_text = "📋 **Effective Host Attributes**\n\n"
         response_text += f"**Host:** {host_name}\n"
