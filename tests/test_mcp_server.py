@@ -7,6 +7,7 @@ because it is under test.
 """
 
 import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -169,3 +170,41 @@ class TestConfigurationErrors:
 
         assert response is not None
         assert len(response["result"]["tools"]) == len(get_all_tools())
+
+
+class TestToolCallsLeaveATrace:
+    """A record of what the model actually did.
+
+    This server creates and deletes hosts, rules, users and downtimes. The
+    only account of which of those an LLM invoked is the server's own log,
+    and after the dispatcher was split out only *failing* calls were logged —
+    a successful deletion left nothing behind at all. The old dispatcher
+    logged every request before running it; this restores that.
+
+    Arguments are deliberately not logged: they carry host names, comments
+    and, for the password tools, secrets.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_successful_call_is_logged_with_its_tool_name(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.INFO, logger="mcp.dispatch"):
+            await make_dispatcher().handle(
+                request("tools/call", {"name": "vibemk_get_checkmk_version", "arguments": {}})
+            )
+
+        assert any(
+            "vibemk_get_checkmk_version" in record.message and record.levelno == logging.INFO
+            for record in caplog.records
+        ), f"no INFO record names the tool: {[r.message for r in caplog.records]}"
+
+    @pytest.mark.asyncio
+    async def test_the_arguments_are_not_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.INFO, logger="mcp.dispatch"):
+            await make_dispatcher().handle(
+                request(
+                    "tools/call",
+                    {"name": "vibemk_get_checkmk_version", "arguments": {"password": "hunter2"}},
+                )
+            )
+
+        assert not any("hunter2" in record.message for record in caplog.records)
