@@ -36,18 +36,18 @@ class TestServiceStatusFallbackChain:
     async def test_an_exception_during_processing_falls_through_to_the_next_method(self, handler: Any) -> None:
         """A malformed 'state' (unhashable) must not abort the whole chain.
 
-        Method 1's response looks successful at the HTTP level, but its
-        'state' value is a list -- unhashable, so looking it up in the status
-        map raises a TypeError while building the response, not while making
-        the request. That has to be treated the same as Method 1's request
-        itself failing: fall through to Method 2, not propagate out past the
+        The first method's response looks successful at the HTTP level, but its
+        entry carries no extensions object, so reading a field off it raises an
+        AttributeError while building the response, not while making the
+        request. That has to be treated the same as the request itself failing:
+        fall through to the next method, rather than propagate out past the
         whole fallback chain.
         """
         handler.client.get.side_effect = [
-            # Method 1 (show_service): succeeds at the HTTP level, but 'state'
-            # is unhashable, so building the response raises during processing.
-            ok({"extensions": {"state": ["unhashable"], "description": "CPU utilization"}}),
-            # Method 2 (direct object): a clean miss, no exception.
+            # Method 1 (collection): succeeds at the HTTP level, but the entry
+            # has no extensions, so processing it raises rather than the request.
+            ok({"value": [{"extensions": None}]}),
+            # Method 2 (show_service): a clean miss, no exception.
             failed({}),
             # Method 3 (query API): succeeds, and is what the test expects to see.
             ok({"value": [{"extensions": {"state": 0, "plugin_output": "OK", "last_check": 0}}]}),
