@@ -94,7 +94,7 @@ class ToolRegistry:
                 # Monitoring and problems
                 "vibemk_get_current_problems": monitoring_handler,
                 "vibemk_acknowledge_problem": monitoring_handler,
-                "vibemk_schedule_downtime": monitoring_handler,
+                "vibemk_schedule_downtime": downtime_handler,
                 "vibemk_get_downtimes": monitoring_handler,
                 "vibemk_reschedule_check": monitoring_handler,
                 "vibemk_get_comments": monitoring_handler,

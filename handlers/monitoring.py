@@ -36,12 +36,8 @@ class MonitoringHandler(BaseHandler):
                 return await self._get_current_problems(arguments)
             if tool_name == "vibemk_acknowledge_problem":
                 return await self._acknowledge_problem(arguments)
-            if tool_name == "vibemk_schedule_downtime":
-                return await self._schedule_downtime(arguments)
             if tool_name == "vibemk_get_downtimes":
                 return await self._get_downtimes(arguments)
-            if tool_name == "vibemk_delete_downtime":
-                return await self._delete_downtime(arguments)
             if tool_name == "vibemk_reschedule_check":
                 return await self._reschedule_check(arguments)
             if tool_name == "vibemk_get_comments":
@@ -202,51 +198,6 @@ class MonitoringHandler(BaseHandler):
             ]
         return self.error_response("Acknowledgment failed", f"Could not acknowledge {target}")
 
-    async def _schedule_downtime(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Schedule maintenance downtime"""
-        downtime_type = arguments.get("downtime_type")
-        host_name = arguments.get("host_name")
-        service_description = arguments.get("service_description")
-        start_time = arguments.get("start_time")
-        end_time = arguments.get("end_time")
-        comment = arguments.get("comment")
-
-        if not downtime_type or not start_time or not end_time or not comment:
-            return self.error_response(
-                "Missing parameters", "downtime_type, start_time, end_time, and comment are required"
-            )
-
-        data = {"downtime_type": downtime_type, "start_time": start_time, "end_time": end_time, "comment": comment}
-
-        if downtime_type == "host" and host_name:
-            data["host_name"] = host_name
-            target = f"host '{host_name}'"
-        elif downtime_type == "service" and host_name and service_description:
-            data["host_name"] = host_name
-            data["service_description"] = service_description
-            target = f"service '{host_name}/{service_description}'"
-        else:
-            return self.error_response(
-                "Invalid parameters", "Invalid downtime_type or missing host/service information"
-            )
-
-        result = self.client.post("domain-types/downtime/collections/all", data=data)
-
-        if result.get("success"):
-            return [
-                {
-                    "type": "text",
-                    "text": (
-                        f"⏰ **Downtime Scheduled**\n\n"
-                        f"Target: {target}\n"
-                        f"Start: {start_time}\n"
-                        f"End: {end_time}\n"
-                        f"Comment: {comment}"
-                    ),
-                }
-            ]
-        return self.error_response("Downtime scheduling failed", f"Could not schedule downtime for {target}")
-
     async def _get_downtimes(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of scheduled downtimes"""
         params = {}
@@ -281,24 +232,6 @@ class MonitoringHandler(BaseHandler):
                 "text": f"⏰ **Scheduled Downtimes** ({len(downtimes)} total):\n\n" + "\n".join(downtime_list),
             }
         ]
-
-    async def _delete_downtime(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Delete a scheduled downtime"""
-        downtime_id = arguments.get("downtime_id")
-
-        if not downtime_id:
-            return self.error_response("Missing parameter", "downtime_id is required")
-
-        result = self.client.delete(f"objects/downtime/{downtime_id}")
-
-        if result.get("success"):
-            return [
-                {
-                    "type": "text",
-                    "text": f"✅ **Downtime Deleted**\n\nDowntime ID: {downtime_id}\nThe downtime has been removed.",
-                }
-            ]
-        return self.error_response("Downtime deletion failed", f"Could not delete downtime '{downtime_id}'")
 
     async def _reschedule_check(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Force immediate check execution"""
