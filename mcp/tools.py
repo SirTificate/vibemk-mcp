@@ -836,8 +836,15 @@ def get_rule_management_tools() -> List[Dict[str, Any]]:
                     "folder": {"type": "string", "description": "Target folder", "default": "/"},
                     "position": {
                         "type": "string",
-                        "description": "Rule position: top, bottom, before, after",
-                        "default": "top",
+                        "enum": ["top_of_folder", "bottom_of_folder", "before_specific_rule", "after_specific_rule"],
+                        "description": (
+                            "Where to place the new rule. Omit to leave placement to CheckMK. "
+                            "The two *_specific_rule values need target_rule_id."
+                        ),
+                    },
+                    "target_rule_id": {
+                        "type": "string",
+                        "description": "Rule to position relative to, for before_specific_rule/after_specific_rule",
                     },
                 },
                 "required": ["ruleset_name", "rule_config"],
@@ -876,10 +883,14 @@ def get_rule_management_tools() -> List[Dict[str, Any]]:
                     "rule_id": {"type": "string", "description": "Rule ID"},
                     "position": {
                         "type": "string",
-                        "description": "Position: top, bottom, before, after",
-                        "default": "top",
+                        "enum": ["top_of_folder", "bottom_of_folder", "before_specific_rule", "after_specific_rule"],
+                        "description": "Where to move the rule. The two *_specific_rule values need target_rule_id.",
+                        "default": "top_of_folder",
                     },
-                    "target_rule_id": {"type": "string", "description": "Target rule ID for before/after positioning"},
+                    "target_rule_id": {
+                        "type": "string",
+                        "description": "Rule to position relative to, for before_specific_rule/after_specific_rule",
+                    },
                 },
                 "required": ["rule_id"],
             },

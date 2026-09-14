@@ -2,7 +2,7 @@
 Rule management handlers for CheckMK monitoring rules
 """
 
-from typing import Any, Dict, List
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 from api.exceptions import CheckMKError
 from handlers.base import BaseHandler
@@ -13,6 +13,46 @@ RULE_DISPLAY_LIMIT = 10
 
 class RulesHandler(BaseHandler):
     """Handle rule management operations"""
+
+    # CheckMK's move endpoint discriminates on `position` and admits exactly
+    # these four values — see the discriminator on MoveRuleTo in the API's own
+    # OpenAPI document. The short forms on the left are what this server's tool
+    # schema has always advertised, so they keep working and are translated.
+    # The two folder positions additionally require `folder`, and the two
+    # relative ones name their target under `rule_id`, not `target_rule`.
+    _FOLDER_POSITIONS: ClassVar[Dict[str, str]] = {
+        "top": "top_of_folder",
+        "bottom": "bottom_of_folder",
+        "top_of_folder": "top_of_folder",
+        "bottom_of_folder": "bottom_of_folder",
+    }
+    _RELATIVE_POSITIONS: ClassVar[Dict[str, str]] = {
+        "before": "before_specific_rule",
+        "after": "after_specific_rule",
+        "before_specific_rule": "before_specific_rule",
+        "after_specific_rule": "after_specific_rule",
+    }
+
+    @classmethod
+    def _move_body(
+        cls, position: str, folder: Optional[str], target_rule_id: Optional[str]
+    ) -> Tuple[Dict[str, Any], Optional[str]]:
+        """Translate a requested position into the move endpoint's body.
+
+        Returns (body, error). On failure the body is empty and error says why.
+        """
+        if position in cls._FOLDER_POSITIONS:
+            if not folder:
+                return {}, "the folder the rule lives in could not be determined"
+            return {"position": cls._FOLDER_POSITIONS[position], "folder": folder}, None
+
+        if position in cls._RELATIVE_POSITIONS:
+            if not target_rule_id:
+                return {}, "target_rule_id is required for 'before' and 'after'"
+            return {"position": cls._RELATIVE_POSITIONS[position], "rule_id": target_rule_id}, None
+
+        accepted = sorted(set(cls._FOLDER_POSITIONS) | set(cls._RELATIVE_POSITIONS))
+        return {}, f"'{position}' is not a position CheckMK accepts. Use one of: {', '.join(accepted)}"
 
     async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle rule-related tool calls"""
@@ -204,6 +244,7 @@ class RulesHandler(BaseHandler):
 
         if result.get("success"):
             rule_id = result["data"].get("id", "unknown")
+            placement = self._place_new_rule(rule_id, arguments.get("position"), api_folder, arguments)
             return [
                 {
                     "type": "text",
@@ -212,12 +253,41 @@ class RulesHandler(BaseHandler):
                         f"Ruleset: {ruleset_name}\n"
                         f"Rule ID: {rule_id}\n"
                         f"Folder: {folder}\n"
-                        f"Comment: {comment}\n\n"
+                        f"Comment: {comment}\n"
+                        f"{placement}\n"
                         f"⚠️ **Remember to activate changes!**"
                     ),
                 }
             ]
         return self.error_response("Rule creation failed", f"Could not create rule in ruleset '{ruleset_name}'")
+
+    def _place_new_rule(self, rule_id: str, position: Optional[str], api_folder: str, arguments: Dict[str, Any]) -> str:
+        """Move a freshly created rule into the requested position.
+
+        The create endpoint takes no position — its body is only `folder`,
+        `ruleset`, `value_raw`, `properties` and `conditions` — so a `position`
+        argument can only be honoured by moving afterwards. Asking for none
+        costs no second write.
+
+        Returns a line for the answer. A failed move is reported rather than
+        swallowed: the rule exists either way, and a caller told nothing would
+        believe it got a position it did not get.
+        """
+        if not position:
+            return ""
+
+        body, problem = self._move_body(position, api_folder, arguments.get("target_rule_id"))
+        if problem is not None:
+            return f"\n⚠️ **Created, but not positioned:** {problem}\n"
+
+        moved = self.client.post(
+            f"objects/rule/{rule_id}/actions/move/invoke",
+            data=body,
+            headers=self._if_match_header(f"objects/rule/{rule_id}"),
+        )
+        if moved.get("success"):
+            return f"Position: {body['position']}\n"
+        return f"\n⚠️ **Created, but the requested position '{position}' could not be applied.**\n"
 
     async def _update_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Update an existing rule"""
@@ -293,22 +363,29 @@ class RulesHandler(BaseHandler):
     async def _move_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Move a rule to different position"""
         rule_id = arguments.get("rule_id")
-        position = arguments.get("position", "top")  # top, bottom, before, after
-        target_rule_id = arguments.get("target_rule_id")  # for before/after
+        position = arguments.get("position", "top")
+        target_rule_id = arguments.get("target_rule_id")
 
         if not rule_id:
             return self.error_response("Missing parameter", "rule_id is required")
 
-        if position in ["before", "after"] and not target_rule_id:
-            return self.error_response("Missing parameter", "target_rule_id is required for before/after positioning")
+        # One read serves two purposes: the ETag CheckMK demands on a move, and
+        # the rule's current folder, which the folder positions require and the
+        # caller has no reason to know.
+        endpoint = f"objects/rule/{rule_id}"
+        try:
+            current = self.client.get(endpoint)
+        except CheckMKError as error:
+            self.logger.debug("Could not read rule %s before moving it: %s", rule_id, error)
+            current = {}
 
-        # Build move data
-        data = {"position": position}
-        if target_rule_id:
-            data["target_rule"] = target_rule_id
+        folder = current.get("data", {}).get("extensions", {}).get("folder")
+        data, problem = self._move_body(position, folder, target_rule_id)
+        if problem is not None:
+            return self.error_response("Invalid position", problem)
 
-        headers = self._if_match_header(f"objects/rule/{rule_id}")
-        result = self.client.post(f"objects/rule/{rule_id}/actions/move/invoke", data=data, headers=headers)
+        headers = {"If-Match": self._extract_etag(current)} if current else {"If-Match": "*"}
+        result = self.client.post(f"{endpoint}/actions/move/invoke", data=data, headers=headers)
 
         if result.get("success"):
             return [
@@ -317,7 +394,7 @@ class RulesHandler(BaseHandler):
                     "text": (
                         f"✅ **Rule Moved Successfully**\n\n"
                         f"Rule ID: {rule_id}\n"
-                        f"New Position: {position}\n"
+                        f"New Position: {data['position']}\n"
                         + (f"Target Rule: {target_rule_id}\n" if target_rule_id else "")
                         + "\n⚠️ **Remember to activate changes!**"
                     ),
