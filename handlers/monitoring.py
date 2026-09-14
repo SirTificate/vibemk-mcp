@@ -18,6 +18,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from api.exceptions import CheckMKError
@@ -55,6 +56,25 @@ class MonitoringHandler(BaseHandler):
             self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
+    @staticmethod
+    def _format_service_problem(
+        host_name: str, description: str, state_name: str, plugin_output: str, last_state_change: int
+    ) -> str:
+        """One problem line, carrying why it is failing and since when.
+
+        Without the check output the answer to "what is wrong" is only a list
+        of names, and the caller has to ask again per service — CheckMK's
+        show_service action does not return the output at all, so that second
+        question has no good answer. The collection already returns it here.
+        """
+        line = f"🔧 SERVICE: {host_name}/{description} - {state_name}"
+        if plugin_output:
+            line += f"\n    {plugin_output.strip()}"
+        if last_state_change:
+            since = datetime.fromtimestamp(last_state_change, tz=timezone.utc)
+            line += f"\n    since {since:%Y-%m-%d %H:%M} UTC"
+        return line
+
     async def _get_current_problems(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get current problems (hosts and services with issues)"""
         target_host = arguments.get("host_name")
@@ -90,7 +110,15 @@ class MonitoringHandler(BaseHandler):
             # ~1500 services — slow and incomplete.)
             service_list_result = self.client.get(
                 "domain-types/service/collections/all",
-                params={"columns": ["host_name", "description", "state", "plugin_output"]},
+                params={
+                    "columns": [
+                        "host_name",
+                        "description",
+                        "state",
+                        "plugin_output",
+                        "last_state_change",
+                    ]
+                },
             )
 
             if service_list_result.get("success"):
@@ -106,7 +134,15 @@ class MonitoringHandler(BaseHandler):
                     if state != 0:
                         description = ext.get("description", "Unknown")
                         state_name = {1: "WARNING", 2: "CRITICAL", 3: "UNKNOWN"}.get(state, f"STATE({state})")
-                        problems.append(f"🔧 SERVICE: {host_name}/{description} - {state_name}")
+                        problems.append(
+                            self._format_service_problem(
+                                host_name,
+                                description,
+                                state_name,
+                                ext.get("plugin_output", ""),
+                                ext.get("last_state_change", 0),
+                            )
+                        )
 
         except Exception as e:
             self.logger.exception("Error getting current problems")

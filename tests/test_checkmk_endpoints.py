@@ -7,6 +7,8 @@ which the handlers swallow into a generic "failed" message — so the endpoint
 names need pinning in tests rather than discovering in production.
 """
 
+import pathlib
+import re
 from typing import Any, List
 
 import pytest
@@ -105,3 +107,60 @@ class TestRedundantDiscoveryToolIsGone:
 
         assert "vibemk_discover_services" not in names
         assert {"vibemk_start_service_discovery", "vibemk_start_bulk_discovery"} <= names
+
+
+class TestServiceStatusCarriesItsOutput:
+    """`show_service` does not return plugin_output — verified against 2.4.0p2 CRE,
+    where its extensions are exactly description, host_name, last_check, state and
+    state_type. The service collection does return it, so that is what a status
+    lookup has to use if it is to answer "why is this critical?".
+    """
+
+    @pytest.fixture
+    def handler(self, mock_checkmk_client):
+        return ServiceHandler(mock_checkmk_client)
+
+    @pytest.mark.asyncio
+    async def test_the_check_output_reaches_the_caller(self, handler):
+        handler.client.get.return_value = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {
+                "value": [
+                    {
+                        "extensions": {
+                            "host_name": "web01",
+                            "description": "Filesystem /var",
+                            "state": 2,
+                            "plugin_output": "CRIT - 94.1% used (89.2 of 94.8 GiB)",
+                        }
+                    }
+                ]
+            },
+        }
+
+        result = await handler.handle(
+            "vibemk_get_service_status", {"host_name": "web01", "service_description": "Filesystem /var"}
+        )
+
+        assert "94.1% used" in result[0]["text"]
+        assert "CRITICAL" in result[0]["text"]
+
+
+class TestDeadFallbacksAreGone:
+    """Both were verified dead against 2.4.0p2 CRE, not merely suspected."""
+
+    def test_no_handler_calls_the_service_object_endpoint(self):
+        # objects/service/{host}/{description} answers 404 on 2.4.
+        root = pathlib.Path(__file__).resolve().parent.parent
+        for path in (root / "handlers" / "services.py",):
+            assert "objects/service/" not in path.read_text(encoding="utf-8"), path
+
+    def test_no_handler_posts_to_show_service(self):
+        # POST on the show_service action answers 405 METHOD NOT ALLOWED on 2.4;
+        # it is a GET action with a service_description parameter.
+        root = pathlib.Path(__file__).resolve().parent.parent
+        source = (root / "handlers" / "services.py").read_text(encoding="utf-8")
+        posts = re.findall(r"client\.post\([^)]*show_service[^)]*\)", source)
+        assert posts == [], posts

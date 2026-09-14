@@ -3,7 +3,7 @@ Service management handlers
 """
 
 import time
-import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from api.exceptions import CheckMKError
@@ -57,67 +57,10 @@ class ServiceHandler(BaseHandler):
         """Get list of services with optional host filtering - IMPROVED VERSION"""
         host_name = arguments.get("host_name")
 
-        # Method 1: If specific host is requested, use the show_service action (best method)
-        if host_name:
-            response = self._services_for_host_via_show_service(host_name)
-            if response is not None:
-                return response
-
-        # Method 2: Fallback to domain-types collection (for all services or if host-specific failed)
+        # The collection takes the host filter itself and returns plugin_output.
+        # The show_service action used to run first here, but POSTing to it
+        # answers 405 on 2.4 — it is a GET action — so that path never worked.
         return self._services_via_collection(host_name)
-
-    def _services_for_host_via_show_service(self, host_name: str) -> Optional[List[Dict[str, Any]]]:
-        """Method 1: the show_service action for a single host (best method)"""
-        # The try wraps the call *and* every bit of the processing below, so a
-        # malformed response falls through to Method 2 instead of aborting
-        # _get_services entirely.
-        try:
-            result = self.client.post(f"objects/host/{host_name}/actions/show_service/invoke", data={})
-            self.logger.debug("Host services API result: %s", result)
-
-            if not result.get("success"):
-                return None
-
-            services_data = result.get("data", {})
-            if not isinstance(services_data, dict):
-                return None
-
-            services = services_data.get("value", [])
-            if not isinstance(services, list):
-                return None
-
-            service_list = []
-            for service in services[:_MAX_SERVICES_DISPLAYED]:
-                if not isinstance(service, dict):
-                    continue
-
-                extensions = service.get("extensions", {})
-                description = extensions.get("description", "Unknown")
-                state = extensions.get("state")
-                status = _STATUS_MAP.get(state, f"UNKNOWN({state})")
-                plugin_output = (
-                    extensions.get("plugin_output", "")[:_PLUGIN_OUTPUT_PREVIEW_LENGTH] + "..."
-                    if len(extensions.get("plugin_output", "")) > _PLUGIN_OUTPUT_PREVIEW_LENGTH
-                    else extensions.get("plugin_output", "No output")
-                )
-
-                service_list.append(f"🔧 **{description}**\n   Status: {status}\n   Output: {plugin_output}")
-
-            if not service_list:
-                return [{"type": "text", "text": f"📭 No services found for host {host_name}"}]
-
-            return [
-                {
-                    "type": "text",
-                    "text": (
-                        f"🔧 **Services for Host: {host_name}** "
-                        f"({len(services)} total, showing first {len(service_list)}):\n\n" + "\n\n".join(service_list)
-                    ),
-                }
-            ]
-        except Exception as e:
-            self.logger.debug("Host services action failed: %s", e)
-            return None
 
     def _services_via_collection(self, host_name: Optional[str]) -> List[Dict[str, Any]]:
         """Method 2: the domain-types service collection (all services, or one host)"""
@@ -175,8 +118,8 @@ class ServiceHandler(BaseHandler):
         self.logger.debug("Getting service status for: %s/%s", host_name, service_description)
 
         for fallback in (
+            self._service_status_via_collection,
             self._service_status_via_show_service,
-            self._service_status_via_direct_object,
             self._service_status_via_query_api,
             self._service_status_via_legacy_query,
         ):
@@ -192,9 +135,9 @@ class ServiceHandler(BaseHandler):
                     f"❌ **Service Status Retrieval Failed**\n\n"
                     f"Service: {host_name}/{service_description}\n\n"
                     f"**Tried Methods:**\n"
-                    f"1️⃣ Direct service object API (objects/service/)\n"
-                    f"2️⃣ LiveStatus query (real-time data)\n"
-                    f"3️⃣ Domain-type service collection query\n\n"
+                    f"1️⃣ Service collection with check output\n"
+                    f"2️⃣ show_service action (state only)\n"
+                    f"3️⃣ Query API\n\n"
                     f"**Possible Issues:**\n"
                     f"• Service not found in monitoring system\n"
                     f"• Service description name mismatch\n"
@@ -206,10 +149,65 @@ class ServiceHandler(BaseHandler):
             }
         ]
 
+    def _service_status_via_collection(
+        self, host_name: str, service_description: str
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Ask the monitoring service collection, which carries the check output.
+
+        The show_service action does not return plugin_output — verified against
+        2.4.0p2 CRE, where its extensions are exactly description, host_name,
+        last_check, state and state_type. Without the output a status lookup
+        cannot say *why* a service is failing, which is the whole question.
+        """
+        try:
+            result = self.client.get(
+                "domain-types/service/collections/all",
+                params={
+                    "columns": ["host_name", "description", "state", "plugin_output", "last_state_change"],
+                    "host_name": host_name,
+                },
+            )
+            if not result.get("success"):
+                return None
+
+            for entry in result.get("data", {}).get("value", []):
+                extensions = entry.get("extensions", {})
+                if extensions.get("description") != service_description:
+                    continue
+                return [{"type": "text", "text": self._format_service_status(extensions)}]
+        except Exception as e:
+            self.logger.debug("Service collection lookup failed: %s", e)
+            return None
+        return None
+
+    def _format_service_status(self, extensions: Dict[str, Any]) -> str:
+        """Render one service's state, its check output and when it last changed."""
+        state = extensions.get("state")
+        if isinstance(state, int):
+            status_text = _STATUS_MAP.get(state, f"UNKNOWN({state})")
+            icon = {0: "✅", 1: "⚠️", 2: "❌", 3: "❓"}.get(state, "❓")
+        else:
+            status_text, icon = f"UNKNOWN({state})", "❓"
+
+        lines = [
+            f"{icon} **Service Status: {extensions.get('host_name')}/{extensions.get('description')}**",
+            "",
+            f"**Status:** {status_text}",
+            f"**State Code:** {state}",
+        ]
+        output = (extensions.get("plugin_output") or "").strip()
+        if output:
+            lines.append(f"**Output:** {output}")
+        changed = extensions.get("last_state_change")
+        if changed:
+            since = datetime.fromtimestamp(changed, tz=timezone.utc)
+            lines.append(f"**Since:** {since:%Y-%m-%d %H:%M} UTC")
+        return "\n".join(lines)
+
     def _service_status_via_show_service(
         self, host_name: str, service_description: str
     ) -> Optional[List[Dict[str, Any]]]:
-        """Method 1: the documented CheckMK show_service action (OFFICIAL API)
+        """Fallback: the documented show_service action, state only.
 
         Unlike the other three fallbacks, a well-formed but unsuccessful or
         unexpectedly shaped response is treated as terminal here — it returns an
@@ -230,8 +228,11 @@ class ServiceHandler(BaseHandler):
             self.logger.debug("CheckMK show_service API result: %s", result)
 
             if not result.get("success"):
-                error_data = result.get("data", {})
-                return self.error_response("API call failed", f"show_service action failed: {error_data}")
+                # Not terminal any more: the collection above is the primary
+                # lookup, so an unsuccessful answer here just means try the next
+                # method rather than ending the chain.
+                self.logger.debug("show_service returned no result: %s", result.get("data"))
+                return None
 
             data = result.get("data", {})
             if not (isinstance(data, dict) and "extensions" in data):
@@ -300,47 +301,6 @@ class ServiceHandler(BaseHandler):
         if time_diff < _SECONDS_PER_DAY:
             return f"{time_diff // _SECONDS_PER_HOUR}h ago"
         return f"{time_diff // _SECONDS_PER_DAY}d ago"
-
-    def _service_status_via_direct_object(
-        self, host_name: str, service_description: str
-    ) -> Optional[List[Dict[str, Any]]]:
-        """Method 2: fall back to the direct service object endpoint"""
-        # See _service_status_via_show_service: the try has to cover response
-        # processing too, not just the request, so a malformed response falls
-        # through to Method 3 instead of aborting the whole chain.
-        try:
-            encoded_service = urllib.parse.quote(service_description, safe="")
-            result = self.client.get(f"objects/service/{host_name}/{encoded_service}")
-            self.logger.debug("Direct service API result: %s", result)
-
-            if not result.get("success"):
-                return None
-
-            data = result.get("data", {})
-            if not (isinstance(data, dict) and "extensions" in data):
-                return None
-
-            extensions = data["extensions"]
-            state = extensions.get("state")
-            if state is None:
-                return None
-
-            status = _STATUS_MAP.get(state, f"UNKNOWN({state})")
-        except Exception as e:
-            self.logger.debug("Direct service API failed: %s", e)
-            return None
-        else:
-            return [
-                {
-                    "type": "text",
-                    "text": (
-                        f"📊 **Service Status: {host_name}/{service_description}** (Fallback API)\n\n"
-                        f"Status: {status}\n"
-                        f"State Code: {state}\n\n"
-                        f"⚠️ **Note:** Using fallback API, limited monitoring information available"
-                    ),
-                }
-            ]
 
     def _service_status_via_query_api(self, host_name: str, service_description: str) -> Optional[List[Dict[str, Any]]]:
         """Method 3: the CheckMK query API with explicit columns and a query filter"""
