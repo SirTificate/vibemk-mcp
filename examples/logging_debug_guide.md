@@ -44,7 +44,7 @@ The log file will include:
 ### Normal Startup Sequence
 ```
 2025-08-23 13:24:33,908 - vibeMK.logging - INFO - File logging enabled: /path/to/logfile.log
-2025-08-23 13:24:33,908 - mcp.server - INFO - Starting vibeMK Server 0.3.8
+2025-08-23 13:24:33,908 - mcp.server - INFO - Starting vibeMK 0.5.0
 2025-08-23 13:24:33,908 - mcp.server - INFO - CheckMK connection will be initialized on first tool call
 2025-08-23 13:24:33,908 - mcp.server - INFO - Server ready to accept MCP requests on stdin
 ```

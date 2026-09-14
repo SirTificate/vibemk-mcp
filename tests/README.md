@@ -188,7 +188,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.8'
+          python-version: '3.9'
       - run: pip install -e ".[dev]"
       - run: pytest --cov=. --cov-report=xml
       - uses: codecov/codecov-action@v3
