@@ -18,12 +18,9 @@ class MetricsHandler(BaseHandler):
     _HTTP_UNSUPPORTED_MEDIA_TYPE = 415
 
     # Display/formatting limits for large responses.
-    _MAX_DISPLAYED_CURVES = 3
     _MAX_DISPLAYED_METRICS = 5
-    _MAX_DISPLAYED_VALUES = 5
     _MAX_PERF_DATA_ITEMS = 10
     _MAX_LISTED_METRICS = 20
-    _MAX_RAW_DATA_CHARS = 200
 
     async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle metrics-related tool calls"""
@@ -422,40 +419,6 @@ class MetricsHandler(BaseHandler):
             }
         ]
 
-    def _format_metric_data(self, metric_data: Dict[str, Any]) -> str:
-        """Format individual metric data for display"""
-        if not metric_data:
-            return "No data available"
-
-        # Handle different response formats from CheckMK metrics API
-        if "curves" in metric_data:
-            curves = metric_data.get("curves", [])
-            if curves:
-                result = []
-                for i, curve in enumerate(curves[: self._MAX_DISPLAYED_CURVES]):
-                    title = curve.get("title", f"Curve {i+1}")
-                    points = curve.get("points", [])
-                    if points:
-                        latest_value = points[-1]
-                        result.append(f"{title}: {latest_value} ({len(points)} data points)")
-                    else:
-                        result.append(f"{title}: No data points")
-                return "\n".join(result)
-
-        elif "values" in metric_data:
-            values = metric_data.get("values", [])
-            if values:
-                shown = values[: self._MAX_DISPLAYED_VALUES]
-                more = "..." if len(values) > self._MAX_DISPLAYED_VALUES else ""
-                return f"Values: {shown}{more}"
-
-        elif "value" in metric_data:
-            return f"Value: {metric_data['value']}"
-
-        # Fallback: show raw data structure
-        raw = str(metric_data)
-        return raw[: self._MAX_RAW_DATA_CHARS] + ("..." if len(raw) > self._MAX_RAW_DATA_CHARS else "")
-
     def _format_metrics_response(
         self, target: str, target_type: str, metrics_data: Dict[str, Any], time_range: str
     ) -> str:
@@ -610,7 +573,10 @@ class MetricsHandler(BaseHandler):
 
         # Check for specific parameter validation issues
         if "time_range" in detail or "start" in detail or "end" in detail:
-            return f"Time range parameter error: {detail}. Check that timestamps are in YYYY-MM-DD HH:MM:SS format"
+            return (
+                f"Time range parameter error: {detail}. "
+                "Timestamps are sent as ISO-8601 UTC, e.g. 2026-09-14T12:00:00Z"
+            )
         if "metric_id" in detail or metric_name in detail:
             return f"Invalid metric ID '{metric_name}': {detail}. Metric may not exist for this service"
         if "host_name" in detail or host_name in detail:
