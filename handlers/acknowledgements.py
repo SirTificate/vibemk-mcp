@@ -290,10 +290,27 @@ class AcknowledgementHandler(BaseHandler):
         else:
             return result
 
+    def _delete_comment(self, comment_id: Any) -> Dict[str, Any]:
+        """Delete one comment through the action endpoint.
+
+        `objects/comment/{id}` serves GET only. Deletion goes through
+        `domain-types/comment/actions/delete/invoke`, which discriminates on
+        `delete_type` and requires the site. `comment_id` is typed as an
+        integer in the schema, so a string id is converted rather than sent on.
+        """
+        try:
+            numeric_id = int(comment_id)
+        except (TypeError, ValueError):
+            return {"success": False, "data": {"detail": f"'{comment_id}' is not a comment id"}}
+
+        return self.client.post(
+            "domain-types/comment/actions/delete/invoke",
+            data={"delete_type": "by_id", "comment_id": numeric_id, "site_id": self.client.config.site},
+        )
+
     def _remove_acknowledgement_by_id(self, ack_id: str) -> List[Dict[str, str]]:
         """Remove a single acknowledgement, identified by its comment ID"""
-        endpoint = f"objects/comment/{ack_id}"
-        result = self.client.delete(endpoint)
+        result = self._delete_comment(ack_id)
 
         if result.get("success"):
             return [{"type": "text", "text": f"✅ Successfully removed acknowledgement #{ack_id}"}]
@@ -319,7 +336,7 @@ class AcknowledgementHandler(BaseHandler):
             if comment_pattern.lower() in comment_text.lower() and (
                 "acknowledge" in comment_text.lower() or "ack" in comment_text.lower()
             ):
-                delete_result = self.client.delete(f"objects/comment/{comment_id}")
+                delete_result = self._delete_comment(comment_id)
                 if delete_result.get("success"):
                     deleted_count += 1
 
@@ -337,37 +354,29 @@ class AcknowledgementHandler(BaseHandler):
     def _remove_acknowledgements_by_host(
         self, host_name: str, service_description: Optional[str]
     ) -> List[Dict[str, str]]:
-        """Remove acknowledgements for a host, optionally narrowed to one service"""
-        list_result = self.client.get("domain-types/comment/collections/all")
-        if not list_result.get("success"):
-            return [{"type": "text", "text": "❌ Unable to retrieve acknowledgements for removal"}]
+        """Remove acknowledgements for a host, optionally narrowed to one service.
 
-        comments = list_result.get("data", {}).get("value", [])
-        deleted_count = 0
+        This used to read every comment on the site and decide which were
+        acknowledgements by looking for "ack" in the comment text — so a note
+        reading "ack with vendor pending" was a candidate for deletion. CheckMK
+        now answers the question directly: the acknowledge domain has its own
+        delete action, discriminating on `acknowledge_type`.
+        """
+        if service_description:
+            data: Dict[str, Any] = {
+                "acknowledge_type": "service",
+                "host_name": host_name,
+                "service_description": service_description,
+            }
+            target = f"{host_name}/{service_description}"
+        else:
+            data = {"acknowledge_type": "host", "host_name": host_name}
+            target = host_name
 
-        for comment in comments:
-            extensions = comment.get("extensions", {})
-            comment_host = extensions.get("host_name", "")
-            comment_text = extensions.get("comment", "").lower()
-            comment_id = comment.get("id")
-            is_service = extensions.get("is_service", False)
+        result = self.client.post("domain-types/acknowledge/actions/delete/invoke", data=data)
 
-            # Check if this is an acknowledgement for the specified host/service
-            if comment_host != host_name or not ("acknowledge" in comment_text or "ack" in comment_text):
-                continue
-            # If service_description is specified, only match service acknowledgements
-            if service_description and not is_service:
-                continue
-            # If no service_description, only match host acknowledgements
-            if not service_description and is_service:
-                continue
+        if result.get("success"):
+            return [{"type": "text", "text": f"✅ Successfully removed acknowledgements for {target}"}]
 
-            delete_result = self.client.delete(f"objects/comment/{comment_id}")
-            if delete_result.get("success"):
-                deleted_count += 1
-
-        target = f"{host_name}/{service_description}" if service_description else host_name
-        if deleted_count > 0:
-            return [{"type": "text", "text": f"✅ Successfully removed {deleted_count} acknowledgements for {target}"}]
-
-        return [{"type": "text", "text": f"❌ No acknowledgements found for {target}"}]
+        error_msg = result.get("data", {}).get("detail", "Unknown error")
+        return [{"type": "text", "text": f"❌ Failed to remove acknowledgements for {target}: {error_msg}"}]

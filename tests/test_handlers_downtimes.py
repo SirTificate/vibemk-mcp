@@ -8,11 +8,13 @@ UTC timestamps that get sent to the CheckMK REST API.
 import asyncio
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from unittest.mock import MagicMock
 
 import pytest
 
 from handlers.downtimes import DowntimeHandler
+from mcp.registry import ToolRegistry
 from mcp.tools import get_all_tools
 
 # A fixed non-UTC zone with a stable offset makes the UTC conversion observable.
@@ -342,3 +344,103 @@ class TestRecurringDowntimes:
             tool = next(t for t in get_all_tools() if t["name"] == name)
             advertised = set(tool["inputSchema"]["properties"]["recur"]["enum"])
             assert advertised <= checkmk, f"{name} advertises {advertised - checkmk}"
+
+
+class TestTheGenericSchedulingToolReachesAWorkingPath:
+    """vibemk_schedule_downtime used to live in MonitoringHandler.
+
+    It posted to `domain-types/downtime/collections/all`, which CheckMK serves
+    for GET only, so it answered 405 for every call it ever made. Meanwhile
+    DowntimeHandler carried a correct implementation, split into a host and a
+    service path, with recurrence validation and a proper
+    `service_descriptions` array. The tool now dispatches to those instead of
+    being a second, broken copy.
+    """
+
+    @pytest.fixture
+    def scheduling(self, mock_checkmk_client: Any) -> Any:
+        mock_checkmk_client.post.return_value = {"success": True, "status": 200, "headers": {}, "data": {}}
+        # The handler reads the downtime collection twice: once before
+        # scheduling, to refuse a duplicate, and again afterwards to verify the
+        # downtime exists. Answering "none yet, then one" models that sequence.
+        # It also keeps the tests quick — a verification that never succeeds
+        # retries five times, five seconds apart.
+        answers = iter(
+            [
+                {"success": True, "status": 200, "headers": {}, "data": {"value": []}},
+            ]
+        )
+        created = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {"value": [{"id": "1", "extensions": {"host_name": "web01"}}]},
+        }
+        mock_checkmk_client.get.side_effect = lambda *_a, **_k: next(answers, created)
+        return mock_checkmk_client
+
+    def endpoints(self, client: Any) -> List[str]:
+        return [c.args[0] for c in client.post.call_args_list]
+
+    def test_the_registry_routes_it_to_this_handler(self) -> None:
+        handler = ToolRegistry.from_client(MagicMock()).handler_for("vibemk_schedule_downtime")
+
+        assert type(handler).__name__ == "DowntimeHandler"
+
+    @pytest.mark.asyncio
+    async def test_a_host_downtime_uses_the_host_collection(self, handler: Any, scheduling: Any) -> None:
+        await handler.handle(
+            "vibemk_schedule_downtime",
+            {"downtime_type": "host", "host_name": "web01", "comment": "patching", "duration": "30m"},
+        )
+
+        assert "domain-types/downtime/collections/host" in self.endpoints(scheduling)
+
+    @pytest.mark.asyncio
+    async def test_a_service_downtime_uses_the_service_collection(self, handler: Any, scheduling: Any) -> None:
+        await handler.handle(
+            "vibemk_schedule_downtime",
+            {
+                "downtime_type": "service",
+                "host_name": "web01",
+                "service_description": "CPU load",
+                "comment": "patching",
+                "duration": "30m",
+            },
+        )
+
+        assert "domain-types/downtime/collections/service" in self.endpoints(scheduling)
+
+    @pytest.mark.asyncio
+    async def test_the_service_is_sent_as_the_array_the_api_expects(self, handler: Any, scheduling: Any) -> None:
+        await handler.handle(
+            "vibemk_schedule_downtime",
+            {
+                "downtime_type": "service",
+                "host_name": "web01",
+                "service_description": "CPU load",
+                "comment": "patching",
+                "duration": "30m",
+            },
+        )
+
+        body = next(c for c in scheduling.post.call_args_list if "collections/service" in c.args[0]).kwargs["data"]
+        assert body["service_descriptions"] == ["CPU load"]
+
+    @pytest.mark.asyncio
+    async def test_an_unsupported_type_never_reaches_checkmk(self, handler: Any, scheduling: Any) -> None:
+        result = await handler.handle(
+            "vibemk_schedule_downtime", {"downtime_type": "hostgroup", "host_name": "web01", "comment": "x"}
+        )
+
+        assert self.endpoints(scheduling) == []
+        assert "hostgroup" in result[0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_nothing_posts_to_the_read_only_collection(self, handler: Any, scheduling: Any) -> None:
+        await handler.handle(
+            "vibemk_schedule_downtime",
+            {"downtime_type": "host", "host_name": "web01", "comment": "patching", "duration": "30m"},
+        )
+
+        assert "domain-types/downtime/collections/all" not in self.endpoints(scheduling)

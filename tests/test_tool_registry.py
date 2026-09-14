@@ -129,3 +129,37 @@ def test_repository_root_is_not_a_python_package():
         "checkout directory's name; the importable packages are api, config, "
         "handlers, mcp, utils and checkmk_types"
     )
+
+
+def test_every_dispatch_branch_belongs_to_the_handler_that_holds_it(registry):
+    """Catches a branch that is live code in the wrong module.
+
+    The guard above proves a handler's `vibemk_x` branch names a *declared*
+    tool. It cannot see whether the registry routes that tool back to this
+    handler. When it routes somewhere else, the branch is unreachable in a
+    way that reads as working code: `handlers/monitoring.py` carried a full
+    `_delete_downtime` implementation against an endpoint CheckMK does not
+    serve, and no request ever reached it because the registry sends
+    vibemk_delete_downtime to DowntimeHandler.
+
+    Two handlers implementing one tool is the real defect — whichever loses
+    the routing rots silently, and a reader fixing a bug may well fix the
+    copy that never runs.
+    """
+    misrouted: Dict[str, str] = {}
+    for path in sorted(HANDLERS_DIR.glob("*.py")):
+        module = f"handlers.{path.stem}"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+                continue
+            if not node.value.startswith("vibemk_"):
+                continue
+            handler = registry.handler_for(node.value)
+            if handler is None:
+                continue  # undeclared or unwired: the guard above owns that case
+            routed_to = type(handler).__module__
+            if routed_to != module:
+                misrouted[node.value] = f"branch in {path.name}, routed to {routed_to}"
+
+    assert misrouted == {}, f"dispatch branches that can never run: {misrouted}"

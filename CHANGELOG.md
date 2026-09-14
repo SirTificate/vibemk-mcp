@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Removing an acknowledgement never worked, by any route. Every path ended in
+  `DELETE objects/comment/{id}`, which CheckMK serves for `GET` only. Comments are deleted
+  through `POST domain-types/comment/actions/delete/invoke`, which takes an integer
+  `comment_id` and a `site_id`. Removal for a host or service no longer goes through
+  comments at all — it used to read every comment on the site and decide which were
+  acknowledgements by looking for "ack" in the comment text, so a note reading "ack with
+  vendor pending" was a deletion candidate
+- `vibemk_schedule_downtime` posted to `domain-types/downtime/collections/all`, which
+  serves `GET` only, so every call it ever made was rejected. It now dispatches to the
+  working implementation that was already present, which splits host and service the way
+  the API does
 - Rule positioning never worked. `vibemk_move_rule` sent `top`, `bottom`, `before` and
   `after` and named its target `target_rule`; CheckMK's move endpoint discriminates on
   `position` over exactly `top_of_folder`, `bottom_of_folder`, `after_specific_rule` and
@@ -43,28 +54,16 @@ All notable changes to this project will be documented in this file.
 - Four dispatch branches referenced tool names declared nowhere — three in
   `handlers/debug.py` and one leftover alias in `handlers/discovery.py`
 
-### Known issues
-- Seven endpoint calls are not served by CheckMK 2.4.0p2 Raw, found by checking all 112
-  calls in `handlers/` against the OpenAPI document the instance publishes for itself at
-  `{server_url}/check_mk/api/1.0/openapi-doc.yaml`. The affected tools are left in place
-  for now and will be re-checked against a newer CheckMK before anything is changed:
-  - deleting a downtime uses `DELETE objects/downtime/{id}`, which serves `GET` only;
-    the API deletes through `POST domain-types/downtime/actions/delete/invoke`
-  - scheduling a downtime posts to `domain-types/downtime/collections/all`, which serves
-    `GET` only; the API creates through `collections/host` and `collections/service`
-  - deleting a comment uses `DELETE objects/comment/{id}`, which serves `GET` only; the
-    API deletes through `POST domain-types/comment/actions/delete/invoke`
-  - `vibemk_reschedule_check` posts to `.../actions/reschedule_check/invoke` for hosts and
-    services. The string "reschedule" does not appear anywhere in the document: the REST
-    API offers no such operation
-  - `vibemk_search_metrics` and `vibemk_get_custom_graph` post to
-    `domain-types/metric/actions/filter/invoke` and `.../get_custom_graph/invoke`; neither
-    path exists, and `actions/get` is the only action the metric domain offers
-
-  Until then these tools report a plain failure, which reads like a transient error rather
-  than a missing capability.
-
 ### Removed
+- `vibemk_reschedule_check`, `vibemk_get_custom_graph` and `vibemk_search_metrics`. None
+  of the three had an endpoint behind it: the string "reschedule" appears nowhere in the
+  API document, and the metric domain offers `actions/get` alone — not `actions/filter`
+  or `actions/get_custom_graph`. They reported a plain failure, which reads like a
+  transient error rather than a capability CheckMK does not expose over REST
+- Four dispatch branches no request could reach, because the registry routes their tools
+  to a different handler: service group create, update and delete in `handlers/groups.py`,
+  whose live counterparts in `handlers/service_groups.py` are a superset, and
+  `_delete_downtime` in `handlers/monitoring.py`
 - `_format_metric_data` and the three display limits only it used; nothing called it
 
 ### Changed
