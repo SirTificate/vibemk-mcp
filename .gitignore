@@ -95,3 +95,7 @@ OPEN.md
 
 # Working notes for Claude Code — local only, like OPEN.md
 CLAUDE.md
+
+# Internal planning documents — specs and implementation plans.
+# They stay on disk and out of git, like OPEN.md.
+docs/superpowers/
