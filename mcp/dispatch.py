@@ -77,6 +77,13 @@ class Dispatcher:
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
 
+        # The only record of what the model did. This server creates and
+        # deletes hosts, rules, users and downtimes; without this line a
+        # successful deletion leaves no trace anywhere. Arguments are left out
+        # on purpose — they carry host names, comment text and, for the
+        # password tools, secrets.
+        logger.info("Tool call: %s", tool_name)
+
         try:
             registry = self._registry_provider()
         except Exception as error:  # reported as tool content, not a crash

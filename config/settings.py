@@ -21,6 +21,8 @@ import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from config.version import __version__
+
 
 def _safe_bool(value: str, default: bool) -> bool:
     """Parse an environment variable as a bool, falling back to `default`.
@@ -164,7 +166,7 @@ class MCPConfig:
     """MCP server configuration"""
 
     name: str = "vibemk"
-    version: str = "0.4.0"
+    version: str = __version__
     protocol_version: str = "2024-11-05"  # Keep stable version for now
     supported_protocol_versions: Tuple[str, ...] = ("2024-11-05",)
 

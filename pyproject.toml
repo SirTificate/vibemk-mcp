@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vibemk-mcp"
-version = "0.4.0"
+dynamic = ["version"]
 description = "vibeMK - CheckMK monitoring via LLM - MCP Server"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
@@ -19,16 +19,16 @@ classifiers = [
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: System :: Monitoring",
     "Topic :: System :: Networking :: Monitoring",
 ]
 keywords = ["checkmk", "monitoring", "mcp", "claude", "automation"]
 dependencies = []
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 [project.urls]
 Homepage = "https://github.com/SirTificate/vibemk-mcp"
@@ -71,12 +71,20 @@ dev = [
     "coverage>=7.0.0"
 ]
 
+[tool.setuptools.dynamic]
+version = {attr = "config.version.__version__"}
+
 [tool.black]
 line-length = 120
-target-version = ['py38']
+target-version = ['py39']
 
 [tool.ruff]
 line-length = 120
+# Deliberately behind requires-python. This setting governs which syntax ruff
+# may *suggest*, not which interpreters are supported. At py39 it asks for the
+# PEP 585 spelling throughout — 861 annotation changes across 49 files — which
+# is its own reviewable change, not something to fold into a release. Raise it
+# when that modernization is done.
 target-version = "py38"
 
 [tool.ruff.lint]

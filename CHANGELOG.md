@@ -2,9 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.5.0] - 2026-09-14
 
 ### Fixed
+- Every tool call is logged again. After the dispatcher was split out only
+  *failing* calls were logged, so a successful host or rule deletion left no trace
+  anywhere — and the server's log is the only record of what a model actually did.
+  Arguments stay out of the log: they carry host names, comment text and, for the
+  password tools, secrets
 - Removing an acknowledgement never worked, by any route. Every path ended in
   `DELETE objects/comment/{id}`, which CheckMK serves for `GET` only. Comments are deleted
   through `POST domain-types/comment/actions/delete/invoke`, which takes an integer
@@ -67,6 +72,11 @@ All notable changes to this project will be documented in this file.
 - `_format_metric_data` and the three display limits only it used; nothing called it
 
 ### Changed
+- Python 3.9 is the minimum. 3.8 has been end-of-life since October 2024, and the
+  project already type-checked against 3.9 while claiming to support 3.8
+- The version lives in one place (`config/version.py`). It was a literal in both
+  `pyproject.toml` and `MCPConfig`, so the number a client sees in the handshake
+  could drift from the packaged one; `pyproject.toml` now derives it
 - `mcp/server.py` split into `transport.py` (stdio I/O), `dispatch.py` (JSON-RPC) and
   `registry.py` (tool-to-handler table); the server is now wiring only, 62 lines from 547.
   The scaffolding that made production behaviour depend on whether the code was under
