@@ -14,6 +14,7 @@ import pytest
 from config import MCPConfig
 from mcp.dispatch import Dispatcher
 from mcp.registry import ToolRegistry
+from mcp.tools import get_all_tools
 
 
 class RecordingHandler:
@@ -54,9 +55,13 @@ def request(method, params=None, request_id=1):
 class TestProtocol:
     @pytest.mark.asyncio
     async def test_tools_list_returns_the_catalogue(self):
+        # Compared against the catalogue rather than a pinned count: the point
+        # is that the protocol layer hands back everything that is declared,
+        # and a hard-coded number turns every catalogue change into a failure
+        # that says nothing about the protocol.
         response = await make_dispatcher().handle(request("tools/list"))
 
-        assert len(response["result"]["tools"]) == 117
+        assert len(response["result"]["tools"]) == len(get_all_tools())
 
     @pytest.mark.asyncio
     async def test_initialize_answers_a_supported_version(self):
@@ -163,4 +168,4 @@ class TestConfigurationErrors:
         response = await Dispatcher(explode, MCPConfig()).handle(request("tools/list"))
 
         assert response is not None
-        assert len(response["result"]["tools"]) == 117
+        assert len(response["result"]["tools"]) == len(get_all_tools())

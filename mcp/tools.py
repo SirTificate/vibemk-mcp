@@ -787,19 +787,6 @@ def get_advanced_monitoring_tools() -> List[Dict[str, Any]]:
                 "required": ["downtime_id"],
             },
         },
-        {
-            "name": "vibemk_reschedule_check",
-            "description": "🔄 Reschedule check - Force immediate check execution",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "check_type": {"type": "string", "description": "Type: host or service"},
-                    "host_name": {"type": "string", "description": "Host name"},
-                    "service_description": {"type": "string", "description": "Service (for service checks)"},
-                },
-                "required": ["check_type", "host_name"],
-            },
-        },
     ]
 
 
@@ -1352,38 +1339,6 @@ def get_metrics_tools() -> List[Dict[str, Any]]:
                     "site": {"type": "string", "description": "CheckMK site name", "default": "cmk"},
                 },
                 "required": ["host_name", "service_description"],
-            },
-        },
-        {
-            "name": "vibemk_get_custom_graph",
-            "description": "📊 Get custom graph - Retrieve predefined custom graph data",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "custom_graph_id": {"type": "string", "description": "Custom graph ID"},
-                    "time_range": {
-                        "type": "string",
-                        "description": "Time range: '1h', '4h', '24h', '7d', '30d'",
-                        "default": "1h",
-                    },
-                    "reduce": {"type": "string", "description": "Aggregation function", "default": "max"},
-                },
-                "required": ["custom_graph_id"],
-            },
-        },
-        {
-            "name": "vibemk_search_metrics",
-            "description": "🔍 Search metrics - Filter and search performance data across hosts/services",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "host_filter": {"type": "string", "description": "Host filter pattern"},
-                    "service_filter": {"type": "string", "description": "Service filter pattern (optional)"},
-                    "site_filter": {"type": "string", "description": "Site filter (optional)"},
-                    "time_range": {"type": "string", "description": "Time range", "default": "1h"},
-                    "reduce": {"type": "string", "description": "Aggregation function", "default": "max"},
-                },
-                "required": ["host_filter"],
             },
         },
         {

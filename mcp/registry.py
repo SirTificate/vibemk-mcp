@@ -96,7 +96,6 @@ class ToolRegistry:
                 "vibemk_acknowledge_problem": monitoring_handler,
                 "vibemk_schedule_downtime": downtime_handler,
                 "vibemk_get_downtimes": monitoring_handler,
-                "vibemk_reschedule_check": monitoring_handler,
                 "vibemk_get_comments": monitoring_handler,
                 "vibemk_add_comment": monitoring_handler,
                 # Configuration management
@@ -112,8 +111,6 @@ class ToolRegistry:
                 # Metrics and performance data (RRD access)
                 "vibemk_get_host_metrics": metrics_handler,
                 "vibemk_get_service_metrics": metrics_handler,
-                "vibemk_get_custom_graph": metrics_handler,
-                "vibemk_search_metrics": metrics_handler,
                 "vibemk_list_available_metrics": metrics_handler,
                 # User management
                 "vibemk_get_users": user_handler,

@@ -17,7 +17,6 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
-import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
@@ -38,8 +37,6 @@ class MonitoringHandler(BaseHandler):
                 return await self._acknowledge_problem(arguments)
             if tool_name == "vibemk_get_downtimes":
                 return await self._get_downtimes(arguments)
-            if tool_name == "vibemk_reschedule_check":
-                return await self._reschedule_check(arguments)
             if tool_name == "vibemk_get_comments":
                 return await self._get_comments(arguments)
             if tool_name == "vibemk_add_comment":
@@ -232,42 +229,6 @@ class MonitoringHandler(BaseHandler):
                 "text": f"⏰ **Scheduled Downtimes** ({len(downtimes)} total):\n\n" + "\n".join(downtime_list),
             }
         ]
-
-    async def _reschedule_check(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Force immediate check execution"""
-        check_type = arguments.get("check_type")
-        host_name = arguments.get("host_name")
-        service_description = arguments.get("service_description")
-
-        if not check_type or not host_name:
-            return self.error_response("Missing parameters", "check_type and host_name are required")
-
-        if check_type == "host":
-            # Host check reschedule
-            data = {"host_name": host_name}
-            result = self.client.post(f"objects/host/{host_name}/actions/reschedule_check/invoke", data=data)
-            target = f"host '{host_name}'"
-        elif check_type == "service":
-            if not service_description:
-                return self.error_response("Missing parameter", "service_description is required for service checks")
-            data = {"host_name": host_name, "service_description": service_description}
-            # URL-encode the service description to handle spaces and special characters
-            encoded_service = urllib.parse.quote(service_description, safe="")
-            result = self.client.post(
-                f"objects/service/{host_name}/{encoded_service}/actions/reschedule_check/invoke", data=data
-            )
-            target = f"service '{host_name}/{service_description}'"
-        else:
-            return self.error_response("Invalid check_type", "check_type must be 'host' or 'service'")
-
-        if result.get("success"):
-            return [
-                {
-                    "type": "text",
-                    "text": f"🔄 **Check Rescheduled**\n\nTarget: {target}\nImmediate check has been scheduled.",
-                }
-            ]
-        return self.error_response("Check reschedule failed", f"Could not reschedule check for {target}")
 
     async def _get_comments(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of comments"""
