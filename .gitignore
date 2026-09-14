@@ -92,3 +92,6 @@ pytest.errors
 
 # Personal working notes, deliberately untracked
 OPEN.md
+
+# Working notes for Claude Code — local only, like OPEN.md
+CLAUDE.md

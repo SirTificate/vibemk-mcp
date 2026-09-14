@@ -228,9 +228,7 @@ class HostGroupRulesHandler(BaseHandler):
                     "text": (
                         "❌ **Host Group Ruleset Not Found**\n\n"
                         "Could not find a working ruleset for host group assignment.\n\n"
-                        "**Tried rulesets:**\n"
-                        + "\n".join([f"• {rs}" for rs in hostgroup_ruleset_candidates])
-                        + "\n\n"
+                        "**Tried rulesets:**\n" + "\n".join([f"• {rs}" for rs in hostgroup_ruleset_candidates]) + "\n\n"
                         "**Recommendation:**\n"
                         "1. Use 'find_host_grouping_rulesets' to find available rulesets\n"
                         "2. Check existing host group rules in CheckMK GUI"
