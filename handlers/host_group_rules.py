@@ -34,7 +34,7 @@ class HostGroupRulesHandler(BaseHandler):
     async def _find_host_grouping_rulesets(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Find all rulesets related to host grouping and contact assignment"""
 
-        results = ["🔍 **Host Grouping and Contact Assignment Rulesets**\\n"]
+        results = ["🔍 **Host Grouping and Contact Assignment Rulesets**\n"]
 
         all_rulesets, search_errors = self._search_grouping_rulesets()
         results.extend(search_errors)
@@ -45,9 +45,9 @@ class HostGroupRulesHandler(BaseHandler):
                 for ruleset_id, info in bucket.items():
                     results.append(f"   • **{ruleset_id}**: {info['title']}")
 
-        results.append(f"\\n📊 **Summary:** Found {len(all_rulesets)} relevant rulesets")
+        results.append(f"\n📊 **Summary:** Found {len(all_rulesets)} relevant rulesets")
 
-        return [{"type": "text", "text": "\\n".join(results)}]
+        return [{"type": "text", "text": "\n".join(results)}]
 
     def _search_grouping_rulesets(self) -> Tuple[Dict[str, Dict[str, str]], List[str]]:
         """Search rulesets for host-grouping-related terms.
@@ -109,10 +109,10 @@ class HostGroupRulesHandler(BaseHandler):
                 other_rules[ruleset_id] = info
 
         return [
-            ("\\n📞 **Contact Group Assignment Rules:**", contact_rules),
-            ("\\n🏠 **Host Group Assignment Rules:**", host_group_rules),
-            ("\\n📨 **Notification Rules:**", notification_rules),
-            ("\\n🔧 **Other Related Rules:**", other_rules),
+            ("\n📞 **Contact Group Assignment Rules:**", contact_rules),
+            ("\n🏠 **Host Group Assignment Rules:**", host_group_rules),
+            ("\n📨 **Notification Rules:**", notification_rules),
+            ("\n🔧 **Other Related Rules:**", other_rules),
         ]
 
     async def _create_host_contactgroup_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -170,13 +170,13 @@ class HostGroupRulesHandler(BaseHandler):
                     {
                         "type": "text",
                         "text": (
-                            f"✅ **Host Contact Group Rule Created Successfully**\\n\\n"
-                            f"Ruleset: {working_ruleset}\\n"
-                            f"Rule ID: {rule_id}\\n"
-                            f"Contact Groups: {contact_groups}\\n"
-                            f"Folder: {folder}\\n"
-                            f"Comment: {comment}\\n\\n"
-                            f"📝 **Conditions:** {conditions_text}\\n\\n"
+                            f"✅ **Host Contact Group Rule Created Successfully**\n\n"
+                            f"Ruleset: {working_ruleset}\n"
+                            f"Rule ID: {rule_id}\n"
+                            f"Contact Groups: {contact_groups}\n"
+                            f"Folder: {folder}\n"
+                            f"Comment: {comment}\n\n"
+                            f"📝 **Conditions:** {conditions_text}\n\n"
                             f"⚠️ **Remember to activate changes!**"
                         ),
                     }
@@ -186,10 +186,10 @@ class HostGroupRulesHandler(BaseHandler):
                 {
                     "type": "text",
                     "text": (
-                        f"❌ **Rule Creation Failed**\\n\\n"
-                        f"Ruleset: {working_ruleset}\\n"
-                        f"Error: {error_data.get('title', 'Unknown error')}\\n"
-                        f"Details: {error_data.get('detail', '')}\\n\\n"
+                        f"❌ **Rule Creation Failed**\n\n"
+                        f"Ruleset: {working_ruleset}\n"
+                        f"Error: {error_data.get('title', 'Unknown error')}\n"
+                        f"Details: {error_data.get('detail', '')}\n\n"
                         f"**Debug - Rule Data:** {rule_data}"
                     ),
                 }
@@ -226,13 +226,13 @@ class HostGroupRulesHandler(BaseHandler):
                 {
                     "type": "text",
                     "text": (
-                        "❌ **Host Group Ruleset Not Found**\\n\\n"
-                        "Could not find a working ruleset for host group assignment.\\n\\n"
-                        "**Tried rulesets:**\\n"
-                        + "\\n".join([f"• {rs}" for rs in hostgroup_ruleset_candidates])
-                        + "\\n\\n"
-                        "**Recommendation:**\\n"
-                        "1. Use 'find_host_grouping_rulesets' to find available rulesets\\n"
+                        "❌ **Host Group Ruleset Not Found**\n\n"
+                        "Could not find a working ruleset for host group assignment.\n\n"
+                        "**Tried rulesets:**\n"
+                        + "\n".join([f"• {rs}" for rs in hostgroup_ruleset_candidates])
+                        + "\n\n"
+                        "**Recommendation:**\n"
+                        "1. Use 'find_host_grouping_rulesets' to find available rulesets\n"
                         "2. Check existing host group rules in CheckMK GUI"
                     ),
                 }
@@ -259,12 +259,12 @@ class HostGroupRulesHandler(BaseHandler):
                     {
                         "type": "text",
                         "text": (
-                            f"✅ **Host Group Assignment Rule Created**\\n\\n"
-                            f"Ruleset: {working_ruleset}\\n"
-                            f"Host Groups: {', '.join(host_groups)}\\n"
-                            f"Folder: {folder}\\n"
-                            f"Comment: {comment}\\n\\n"
-                            f"📝 **Conditions:** {conditions_text}\\n\\n"
+                            f"✅ **Host Group Assignment Rule Created**\n\n"
+                            f"Ruleset: {working_ruleset}\n"
+                            f"Host Groups: {', '.join(host_groups)}\n"
+                            f"Folder: {folder}\n"
+                            f"Comment: {comment}\n\n"
+                            f"📝 **Conditions:** {conditions_text}\n\n"
                             f"⚠️ **Remember to activate changes!**"
                         ),
                     }
@@ -274,10 +274,10 @@ class HostGroupRulesHandler(BaseHandler):
                 {
                     "type": "text",
                     "text": (
-                        f"❌ **Rule Creation Failed**\\n\\n"
-                        f"Ruleset: {working_ruleset}\\n"
-                        f"Error: {error_data.get('title', 'Unknown error')}\\n"
-                        f"Details: {error_data.get('detail', '')}\\n\\n"
+                        f"❌ **Rule Creation Failed**\n\n"
+                        f"Ruleset: {working_ruleset}\n"
+                        f"Error: {error_data.get('title', 'Unknown error')}\n"
+                        f"Details: {error_data.get('detail', '')}\n\n"
                         f"**Rule Data:** {rule_data}"
                     ),
                 }
@@ -289,8 +289,8 @@ class HostGroupRulesHandler(BaseHandler):
         """Show example rule structures for host grouping"""
 
         examples = [
-            "📚 **Example Rule Structures for Host Grouping**\\n",
-            "\\n🔧 **1. Host Contact Group Assignment (Swagger Format)**",
+            "📚 **Example Rule Structures for Host Grouping**\n",
+            "\n🔧 **1. Host Contact Group Assignment (Swagger Format)**",
             "```json",
             "{",
             '  "extensions": {',
@@ -312,7 +312,7 @@ class HostGroupRulesHandler(BaseHandler):
             "  }",
             "}",
             "```",
-            "\\n🏠 **2. Host Group Assignment (Swagger Format)**",
+            "\n🏠 **2. Host Group Assignment (Swagger Format)**",
             "```json",
             "{",
             '  "extensions": {',
@@ -331,7 +331,7 @@ class HostGroupRulesHandler(BaseHandler):
             "  }",
             "}",
             "```",
-            "\\n🔍 **3. Advanced Host Conditions (Swagger Format)**",
+            "\n🔍 **3. Advanced Host Conditions (Swagger Format)**",
             "```json",
             "{",
             '  "extensions": {',
@@ -369,7 +369,7 @@ class HostGroupRulesHandler(BaseHandler):
             "  }",
             "}",
             "```",
-            "\\n💡 **4. Simple All-Hosts Rule (Swagger Format)**",
+            "\n💡 **4. Simple All-Hosts Rule (Swagger Format)**",
             "```json",
             "{",
             '  "extensions": {',
@@ -382,7 +382,7 @@ class HostGroupRulesHandler(BaseHandler):
             "  }",
             "}",
             "```",
-            "\\n🎯 **Usage Tips (Updated for Swagger Format):**",
+            "\n🎯 **Usage Tips (Updated for Swagger Format):**",
             "• All rule data must be under `extensions` object",
             "• Use `conditions` with proper operator format (match_on, operator)",
             "• `value_raw` contains the actual rule values (contact groups, host groups)",
@@ -392,4 +392,4 @@ class HostGroupRulesHandler(BaseHandler):
             "• Remember to activate changes after creating rules",
         ]
 
-        return [{"type": "text", "text": "\\n".join(examples)}]
+        return [{"type": "text", "text": "\n".join(examples)}]

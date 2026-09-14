@@ -7,6 +7,7 @@ Europe/Berlin returned the window two hours early. Sending UTC with a Z suffix
 removes the coupling to the host's timezone.
 """
 
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -73,3 +74,20 @@ def test_unknown_range_falls_back_to_one_hour(handler):
     window = handler._parse_time_range("not-a-range")
 
     assert as_utc(window["end"]) - as_utc(window["start"]) == timedelta(hours=1)
+
+
+# The 400 handler told users to send "YYYY-MM-DD HH:MM:SS" long after the code
+# started sending "%Y-%m-%dT%H:%M:%SZ" for the UTC fix above. A caller who did
+# as told reintroduced exactly the timezone bug that change removed. Deriving
+# the expectation from _parse_time_range keeps the advice and the wire format
+# from drifting apart again.
+ISO_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+
+
+def test_a_time_range_error_shows_the_format_actually_sent(handler):
+    transmitted = handler._parse_time_range("1h")["start"]
+    assert ISO_UTC.fullmatch(transmitted), "precondition: _parse_time_range emits ISO-8601 UTC"
+
+    message = handler._handle_400_error({"detail": "time_range is invalid"}, "web01", "Check_MK", "util")
+
+    assert ISO_UTC.search(message), f"the advice should show the shape the code transmits, got: {message}"

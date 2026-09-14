@@ -45,22 +45,22 @@ class DebugHandler(BaseHandler):
 
         results = [self._probe_endpoint_structure(endpoint) for endpoint in endpoints_to_test]
 
-        return [{"type": "text", "text": ("🔍 **CheckMK API Endpoints Debug**\\n\\n" + "\\n\\n".join(results))}]
+        return [{"type": "text", "text": ("🔍 **CheckMK API Endpoints Debug**\n\n" + "\n\n".join(results))}]
 
     def _probe_endpoint_structure(self, endpoint: str) -> str:
         """Fetch one endpoint and describe its response shape, for _debug_api_endpoints"""
         try:
             result = self.client.get(endpoint)
         except Exception as e:
-            return f"💥 **{endpoint}**\\n   Exception: {e}"
+            return f"💥 **{endpoint}**\n   Exception: {e}"
 
         if not result.get("success", False):
             error_info = result.get("data", {})
-            return f"❌ **{endpoint}**\\n   Error: {error_info}"
+            return f"❌ **{endpoint}**\n   Error: {error_info}"
 
         data = result.get("data", {})
         if not isinstance(data, dict):
-            return f"✅ **{endpoint}**\\n   Data type: {type(data)}\\n   Content: {str(data)[:200]}..."
+            return f"✅ **{endpoint}**\n   Data type: {type(data)}\n   Content: {str(data)[:200]}..."
 
         keys = list(data.keys())
         first_items: List[Any] = []
@@ -71,7 +71,7 @@ class DebugHandler(BaseHandler):
         elif "domain_type" in data and isinstance(data["domain_type"], list) and data["domain_type"]:
             first_items = data["domain_type"][:2]
 
-        return f"✅ **{endpoint}**\\n   Keys: {keys}\\n   Sample: {str(first_items)[:200]}..."
+        return f"✅ **{endpoint}**\n   Keys: {keys}\n   Sample: {str(first_items)[:200]}..."
 
     async def _debug_permissions(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Debug automation user permissions"""
@@ -86,7 +86,7 @@ class DebugHandler(BaseHandler):
         ]
 
         for description, endpoint in basic_tests:
-            results.append(f"\\n🧪 **{description}**")
+            results.append(f"\n🧪 **{description}**")
             try:
                 result = self.client.get(endpoint)
                 success = result.get("success", False)
@@ -108,7 +108,7 @@ class DebugHandler(BaseHandler):
         ]
 
         for description, endpoint in monitoring_tests:
-            results.append(f"\\n🔒 **{description} Permissions**")
+            results.append(f"\n🔒 **{description} Permissions**")
             try:
                 result = self.client.get(endpoint)
                 success = result.get("success", False)
@@ -138,4 +138,4 @@ class DebugHandler(BaseHandler):
             except Exception as e:
                 results.append(f"   💥 Exception: {e}")
 
-        return [{"type": "text", "text": ("🔐 **Permissions Debug**\\n" + "\\n".join(results))}]
+        return [{"type": "text", "text": ("🔐 **Permissions Debug**\n" + "\n".join(results))}]
