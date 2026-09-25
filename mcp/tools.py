@@ -1655,12 +1655,19 @@ def get_discovery_tools() -> List[Dict[str, Any]]:
                     },
                     "options": {
                         "type": "object",
-                        "description": "Discovery options",
+                        "description": (
+                            "Discovery options. Only monitor_undecided_services is on by default: "
+                            "removing services and rewriting labels are changes a caller should ask for."
+                        ),
                         "properties": {
                             "monitor_undecided_services": {"type": "boolean", "default": True},
-                            "remove_vanished_services": {"type": "boolean", "default": True},
-                            "update_service_labels": {"type": "boolean", "default": True},
-                            "update_host_labels": {"type": "boolean", "default": True},
+                            "remove_vanished_services": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Stop monitoring services CheckMK no longer finds",
+                            },
+                            "update_service_labels": {"type": "boolean", "default": False},
+                            "update_host_labels": {"type": "boolean", "default": False},
                         },
                     },
                     "do_full_scan": {"type": "boolean", "description": "Perform full service scan", "default": True},

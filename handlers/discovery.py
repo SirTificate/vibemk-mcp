@@ -13,6 +13,37 @@ logger = get_logger(__name__)
 HOSTNAME_PREVIEW_LIMIT = 5
 
 
+def _options(
+    monitor: bool = False, remove: bool = False, svc_labels: bool = False, host_labels: bool = False
+) -> Dict[str, bool]:
+    return {
+        "monitor_undecided_services": monitor,
+        "remove_vanished_services": remove,
+        "update_service_labels": svc_labels,
+        "update_host_labels": host_labels,
+    }
+
+
+# What each single-host discovery mode means in bulk terms. Every mode the tool
+# schema offers has an entry; a mode without one is refused rather than turned
+# into a request that changes nothing.
+_BULK_EQUIVALENT: Dict[str, Dict[str, Any]] = {
+    "new": {"options": _options(monitor=True), "do_full_scan": False},
+    "remove": {"options": _options(remove=True), "do_full_scan": False},
+    "fix_all": {
+        "options": _options(monitor=True, remove=True, svc_labels=True, host_labels=True),
+        "do_full_scan": True,
+    },
+    "refresh": {"options": _options(monitor=True, svc_labels=True, host_labels=True), "do_full_scan": True},
+    "tabula_rasa": {
+        "options": _options(monitor=True, remove=True, svc_labels=True, host_labels=True),
+        "do_full_scan": True,
+    },
+    "only_host_labels": {"options": _options(host_labels=True), "do_full_scan": False},
+    "only_service_labels": {"options": _options(svc_labels=True), "do_full_scan": False},
+}
+
+
 class DiscoveryHandler(BaseHandler):
     """Handler for CheckMK host discovery operations"""
 
@@ -90,18 +121,28 @@ class DiscoveryHandler(BaseHandler):
     async def _fallback_to_bulk_discovery(self, host_name: str, mode: str) -> List[Dict[str, str]]:
         """Fallback to bulk discovery for single host when individual discovery fails"""
         try:
-            # Map single host discovery modes to bulk discovery options
-            bulk_options = {
-                "monitor_undecided_services": mode in ["new", "refresh", "fix_all"],
-                "remove_vanished_services": mode in ["remove", "fix_all"],
-                "update_service_labels": mode in ["refresh", "fix_all"],
-                "update_host_labels": mode in ["refresh", "fix_all", "only_host_labels"],
-            }
+            # An explicit table rather than four membership tests. The tests
+            # silently produced an all-False request for any mode they did not
+            # mention -- tabula_rasa among them, the most destructive mode
+            # there is -- which asked CheckMK to do nothing and was reported as
+            # a success.
+            mapping = _BULK_EQUIVALENT.get(mode)
+            if mapping is None:
+                return [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"❌ Discovery mode '{mode}' has no bulk equivalent, so the fallback "
+                            f"cannot run it. Known modes: {', '.join(sorted(_BULK_EQUIVALENT))}"
+                        ),
+                    }
+                ]
 
+            bulk_options = dict(mapping["options"])
             bulk_data = {
                 "hostnames": [host_name],
                 "options": bulk_options,
-                "do_full_scan": mode in ["refresh", "fix_all"],
+                "do_full_scan": mapping["do_full_scan"],
                 "bulk_size": 1,
                 "ignore_errors": False,
             }
@@ -147,12 +188,16 @@ class DiscoveryHandler(BaseHandler):
             if not hostnames:
                 return [{"type": "text", "text": "❌ Error: hostnames list is required"}]
 
-            # Set default options if not provided
+            # CheckMK defaults every one of these to False. This server used to
+            # override all four with True, so a call carrying nothing but
+            # hostnames removed vanished services -- which nobody asking to
+            # "discover services" is asking for. Only the additive one defaults
+            # on; removal and label rewrites are opt-in.
             default_options = {
                 "monitor_undecided_services": True,
-                "remove_vanished_services": True,
-                "update_service_labels": True,
-                "update_host_labels": True,
+                "remove_vanished_services": False,
+                "update_service_labels": False,
+                "update_host_labels": False,
             }
 
             # Merge with provided options
