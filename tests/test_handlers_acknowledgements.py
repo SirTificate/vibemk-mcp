@@ -138,3 +138,53 @@ class TestRemovingByCommentPattern:
             {"delete_type": "by_id", "comment_id": PATTERN_COMMENT_ID, "site_id": mock_checkmk_client.config.site}
         ]
         assert not mock_checkmk_client.delete.called
+
+
+# CheckMK types every comment: the Livestatus `entry_type` column is 1 for a user
+# comment, 2 for downtime, 3 for flapping and 4 for an acknowledgement. The code
+# used to ignore that and guess — "ack" as a substring of the comment text, or
+# merely the persistent flag — which matches "track the vendor ticket",
+# "packaging", and every persistent comment ever written. Those guesses fed
+# remove_acknowledgement, which deletes by comment id.
+ACK_ENTRY_TYPE = "4"
+COMMENT_COLLECTION = "domain-types/comment/collections/all"
+
+
+class TestAcknowledgementsAreIdentifiedByTheirType:
+    @pytest.mark.asyncio
+    async def test_the_listing_asks_checkmk_for_acknowledgements(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        await handler.handle("vibemk_list_acknowledgements", {})
+
+        call = next(c for c in mock_checkmk_client.get.call_args_list if c.args[0] == COMMENT_COLLECTION)
+        assert call.kwargs["params"]["query"] == {
+            "op": "=",
+            "left": "entry_type",
+            "right": ACK_ENTRY_TYPE,
+        }, "the type is a column CheckMK can filter on; guessing from the text is not needed"
+
+    @pytest.mark.asyncio
+    async def test_a_persistent_note_is_not_an_acknowledgement(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        # The old rule treated every persistent comment as an acknowledgement.
+        mock_checkmk_client.get.return_value = ok({"value": []})
+
+        result = await handler.handle("vibemk_list_acknowledgements", {})
+
+        assert "No active acknowledgements" in result[0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_the_text_is_never_searched_for_ack(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        # Whatever CheckMK returns for the query is an acknowledgement by
+        # definition — including one whose text contains no form of "ack".
+        mock_checkmk_client.get.return_value = ok(
+            {"value": [{"id": "9", "extensions": {"host_name": HOST, "comment": "disk replaced, watching"}}]}
+        )
+
+        result = await handler.handle("vibemk_list_acknowledgements", {})
+
+        assert "disk replaced, watching" in result[0]["text"]

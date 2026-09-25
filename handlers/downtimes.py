@@ -424,31 +424,30 @@ class DowntimeHandler(BaseHandler):
 
     def _build_delete_query(
         self, host_name: str, service_descriptions: List[str], comment: Optional[str], is_service: bool
-    ) -> Dict[str, str]:
-        """Build the query-based delete request body (working CheckMK format)."""
-        query_filters = []
+    ) -> Dict[str, Any]:
+        """Build the query-based delete request body.
+
+        The expression is returned as data, not as a hand-assembled JSON string:
+        the client serialises the whole body, and the API documents this field
+        as a nested dictionary. Building it with f-strings meant a quotation
+        mark in a maintenance comment produced broken JSON on a delete call.
+
+        Comparisons are exact. They used to use `~`, a regex match, so deleting
+        a downtime commented "Patch" also deleted one commented "Patching", and
+        a host filter for "web01" also caught "web01-backup".
+        """
+        expr: List[Dict[str, Any]] = []
 
         if is_service:
-            if len(service_descriptions) > 1:
-                # Multiple services - use OR filter
-                service_filter_parts = [
-                    f'{{"op": "~", "left": "service_description", "right": "{s}"}}' for s in service_descriptions
-                ]
-                query_filters.append(f'{{"op": "or", "expr": [{", ".join(service_filter_parts)}]}}')
-            else:
-                # Single service
-                query_filters.append(
-                    f'{{"op": "~", "left": "service_description", "right": "{service_descriptions[0]}"}}'
-                )
+            service_filters = [{"op": "=", "left": "service_description", "right": s} for s in service_descriptions]
+            expr.append(service_filters[0] if len(service_filters) == 1 else {"op": "or", "expr": service_filters})
 
-        # Add host name filter
-        query_filters.append(f'{{"op": "~", "left": "host_name", "right": "{host_name}"}}')
+        expr.append({"op": "=", "left": "host_name", "right": host_name})
 
-        # Add comment filter if provided
         if comment:
-            query_filters.append(f'{{"op": "~", "left": "comment", "right": "{comment}"}}')
+            expr.append({"op": "=", "left": "comment", "right": comment})
 
-        return {"delete_type": "query", "query": f'{{"op": "and", "expr": [{", ".join(query_filters)}]}}'}
+        return {"delete_type": "query", "query": {"op": "and", "expr": expr}}
 
     def _format_delete_success(
         self, item: str, is_service: bool, downtime_id: Any, comment: Optional[str]
@@ -466,10 +465,41 @@ class DowntimeHandler(BaseHandler):
         response += "\n💡 **Tip:** Use `vibemk_list_downtimes` to view remaining active downtimes"
         return [{"type": "text", "text": response}]
 
+    def _delete_downtime_by_id(self, downtime_id: Any) -> List[Dict[str, Any]]:
+        """Delete exactly the downtime with this id."""
+        result = self.client.post(
+            "domain-types/downtime/actions/delete/invoke",
+            data={
+                "delete_type": "by_id",
+                "downtime_id": str(downtime_id),
+                "site_id": self.client.config.site,
+            },
+        )
+
+        if result.get("success"):
+            return self._format_delete_success(
+                str(downtime_id), is_service=False, downtime_id=downtime_id, comment=None
+            )
+
+        error_data = result.get("data", {})
+        return self.error_response(
+            "Failed to delete downtime",
+            f"Could not delete downtime {downtime_id}: {error_data.get('title', str(error_data))}",
+        )
+
     async def _delete_downtime(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Delete downtimes using query-based deletion (based on working CheckMK example)"""
         # Support both specific downtime_id deletion and bulk deletion by criteria
         downtime_id = arguments.get("downtime_id")
+
+        # An id identifies exactly one downtime, and CheckMK can delete it that
+        # way. Resolving the id into a host-and-comment query, as this used to
+        # do, turns "delete this downtime" into "delete everything that looks
+        # like it" -- and a downtime without a comment (which the API allows)
+        # matched every downtime on the host.
+        if downtime_id:
+            return self._delete_downtime_by_id(downtime_id)
+
         host_name, service_descriptions, comment, error = self._resolve_delete_target(arguments)
         if error:
             return error
@@ -1233,35 +1263,27 @@ class DowntimeHandler(BaseHandler):
         self, host_name: str, service_descriptions: List[str], comment: Optional[str] = None
     ) -> List[str]:
         """Get current downtimes for a host/services, based on working CheckMK example"""
-        filters = []
+        # Filters are data. Assembling them with f-strings put user text --
+        # service names, maintenance comments -- straight into a JSON document,
+        # so a quotation mark produced a broken query. The client serialises a
+        # dict here for us. Comparisons are exact; `~` is a regex match and
+        # made "Patch" find "Patching".
+        filters: List[Dict[str, Any]] = []
         is_service = len(service_descriptions) > 0
 
         if is_service:
-            # Handle list of service descriptions with proper filtering
-            if len(service_descriptions) > 1:
-                # Create OR filter for multiple services
-                service_filters = [
-                    f'{{"op": "~", "left": "service_description", "right": "{s}"}}' for s in service_descriptions
-                ]
-                filters.append(f'{{"op": "or", "expr": [{", ".join(service_filters)}]}}')
-            else:
-                # Single service filter
-                filters.append(f'{{"op": "~", "left": "service_description", "right": "{service_descriptions[0]}"}}')
-            filters.append('{"op": "=", "left": "is_service", "right": "1"}')
+            service_filters = [{"op": "=", "left": "service_description", "right": s} for s in service_descriptions]
+            filters.append(service_filters[0] if len(service_filters) == 1 else {"op": "or", "expr": service_filters})
+            filters.append({"op": "=", "left": "is_service", "right": "1"})
         else:
-            # Host downtime filter
-            filters.append('{"op": "=", "left": "is_service", "right": "0"}')
+            filters.append({"op": "=", "left": "is_service", "right": "0"})
 
-        # Add host name filter
-        filters.append(f'{{"op": "~", "left": "host_name", "right": "{host_name}"}}')
+        filters.append({"op": "=", "left": "host_name", "right": host_name})
 
-        # Add comment filter if provided
         if comment:
-            filters.append(f'{{"op": "~", "left": "comment", "right": "{comment}"}}')
+            filters.append({"op": "=", "left": "comment", "right": comment})
 
-        # Build query parameters
-        query = f'{{"op": "and", "expr": [{", ".join(filters)}]}}'
-        params = {"query": query}
+        params: Dict[str, Any] = {"query": {"op": "and", "expr": filters}}
 
         try:
             # Query existing downtimes
@@ -1301,26 +1323,15 @@ class DowntimeHandler(BaseHandler):
         for retry in range(max_retries):
             try:
                 # Enhanced query parameters based on working example
-                query_filters = []
+                query_filters: List[Dict[str, Any]] = [{"op": "=", "left": "host_name", "right": host_name}]
 
-                # Host name filter
-                query_filters.append(f'{{"op": "=", "left": "host_name", "right": "{host_name}"}}')
-
-                # Comment filter
                 if comment:
-                    query_filters.append(f'{{"op": "=", "left": "comment", "right": "{comment}"}}')
+                    query_filters.append({"op": "=", "left": "comment", "right": comment})
 
-                # Type filter (based on working example pattern)
-                if is_service:
-                    query_filters.append('{"op": "=", "left": "type", "right": "3"}')  # Service downtime type
-                else:
-                    query_filters.append('{"op": "=", "left": "type", "right": "2"}')  # Host downtime type
+                # Livestatus downtimes.type: 2 is a host downtime, 3 a service one.
+                query_filters.append({"op": "=", "left": "type", "right": "3" if is_service else "2"})
 
-                # Build query
-                query = f'{{"op": "and", "expr": [{", ".join(query_filters)}]}}'
-
-                # Enhanced parameters based on working example
-                params = {"host_name": host_name, "query": query}
+                params: Dict[str, Any] = {"host_name": host_name, "query": {"op": "and", "expr": query_filters}}
 
                 # Add service-specific parameters
                 if is_service:

@@ -89,7 +89,7 @@ This project is in the alpha stage and under development. I accept no liability 
 
 | CheckMK Version | Status | Notes |
 |-----------------|--------|-------|
-| **2.4.x** | ✅ Verified | All 104 endpoint calls checked against the API document of a 2.4.0p36 Raw site; read-only tools additionally exercised against it |
+| **2.4.x** | ✅ Verified | All 149 endpoint calls checked against the API document of a 2.4.0p36 Raw site; read-only tools additionally exercised against it |
 | **2.3.x** | ⚠️ Expected to work | Same REST API version (1.0), not re-verified since the fork |
 | **2.2.x and older** | 🔴 Unsupported | |
 
@@ -109,7 +109,7 @@ Every endpoint call is now checked against the OpenAPI document the site publish
 ```
 
 That document carries the exact version *and* edition, so it cannot describe an endpoint a given
-site does not have. All 104 calls match a path and a verb that 2.4.0p36 Raw serves.
+site does not have. All 149 calls match a path and a verb that 2.4.0p36 Raw serves.
 
 Three tools were removed rather than left to fail quietly, because CheckMK's REST API offers no
 equivalent: `vibemk_reschedule_check`, `vibemk_get_custom_graph` and `vibemk_search_metrics`. 114
@@ -124,12 +124,31 @@ LIVE_SMOKE_TEST=true python -m pytest tests/test_live_smoke.py -v
 
 ## Checkmk Edition Support
 
-All features in this server use REST API endpoints that CheckMK registers for **every edition,
-including Raw (CRE)**. That includes Business Intelligence and the Event Console, which the original
-README listed as Enterprise-only — a mistake this fork corrects.
+Every tool in this server uses REST API endpoints that CheckMK registers for **all editions,
+including Raw (CRE)**. Nothing here needs a commercial edition.
 
-The one genuine edition restriction is the **Agent Bakery** (`agent` endpoints), which exists only in
-the Enterprise and Cloud editions. It is not currently implemented here.
+The one genuine edition restriction in the API is the **Agent Bakery**, which exists only in the
+Enterprise and Cloud editions. It is not implemented here, and on a Raw site there is nothing to
+implement: the agent domain offers only `actions/download`, with no baking endpoint at all.
+
+**A correction to the original README, which is not a claim about this server:** it listed Business
+Intelligence and the Event Console as Enterprise-only. That is wrong — CheckMK registers both for
+every edition, Raw included. Neither is implemented here (see below); the point is only that nothing
+would stop an implementation on Raw.
+
+## Not implemented
+
+The REST API is larger than this server. Of 131 endpoints a 2.4.0p36 Raw site publishes, 59 are
+used. The notable gaps, in case you were expecting them:
+
+- **Business Intelligence** — aggregations, packs and BI rules
+- **Event Console** — listing, acknowledging and changing event state
+- **Site management** — the `site_connection` endpoints
+- **Auxiliary tags**, **audit log**, **LDAP connections**, **broker connections**, **Quick setup**
+- **Bulk delete for hosts**, and modifying an existing downtime rather than deleting and recreating
+
+Labels are not exposed as their own feature either. CheckMK has no label endpoint — labels are host
+attributes — so `vibemk_update_host` can set them, but no tool schema mentions them.
 
 ## Security considerations
 

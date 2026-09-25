@@ -444,3 +444,110 @@ class TestTheGenericSchedulingToolReachesAWorkingPath:
         )
 
         assert "domain-types/downtime/collections/all" not in self.endpoints(scheduling)
+
+
+class TestDeletingOneDowntimeDeletesOnlyThatOne:
+    """The tool is declared to delete a downtime by id. It used to resolve the
+    id, read the downtime's host and comment, and then delete by a *regex*
+    query built from those. Two consequences, both verified against the API
+    document: a comment is optional on creation, so a downtime without one
+    dropped the comment filter and took every downtime on the host with it;
+    and with a comment, `op: "~"` is a substring match, so deleting "Patch"
+    also deleted "Patching".
+
+    CheckMK has an exact form — delete_type "by_id" with the id and a site.
+    """
+
+    DELETE = "domain-types/downtime/actions/delete/invoke"
+
+    @pytest.fixture
+    def instance(self, mock_checkmk_client: Any) -> Any:
+        mock_checkmk_client.post.return_value = {"success": True, "status": 200, "headers": {}, "data": {}}
+        mock_checkmk_client.get.return_value = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {
+                "value": [
+                    {"id": "7", "extensions": {"host_name": "web01", "comment": "", "is_service": 0}},
+                    {"id": "8", "extensions": {"host_name": "web01", "comment": "Patching", "is_service": 0}},
+                ]
+            },
+        }
+        return mock_checkmk_client
+
+    def body(self, client: Any) -> Dict[str, Any]:
+        calls = [c for c in client.post.call_args_list if c.args[0] == self.DELETE]
+        assert len(calls) == 1, f"expected one delete call, saw {len(calls)}"
+        return dict(calls[0].kwargs["data"])
+
+    @pytest.mark.asyncio
+    async def test_an_id_is_deleted_by_id(self, handler: Any, instance: Any) -> None:
+        await handler.handle("vibemk_delete_downtime", {"downtime_id": 7})
+
+        assert self.body(instance)["delete_type"] == "by_id"
+
+    @pytest.mark.asyncio
+    async def test_the_id_and_site_are_sent(self, handler: Any, instance: Any) -> None:
+        # Both are required by the schema; site_id was never sent at all.
+        await handler.handle("vibemk_delete_downtime", {"downtime_id": 7})
+
+        body = self.body(instance)
+        assert body["downtime_id"] == "7"
+        assert body["site_id"] == instance.config.site
+
+    @pytest.mark.asyncio
+    async def test_a_comment_less_downtime_does_not_take_the_host_with_it(self, handler: Any, instance: Any) -> None:
+        # Downtime 7 has no comment. The old code dropped the comment filter and
+        # matched every downtime on web01 — including 8.
+        await handler.handle("vibemk_delete_downtime", {"downtime_id": 7})
+
+        body = self.body(instance)
+        assert "query" not in body, "an id deletion must not become a query"
+        assert body["downtime_id"] == "7"
+
+    @pytest.mark.asyncio
+    async def test_no_regex_operator_is_used_anywhere(self, handler: Any, instance: Any) -> None:
+        await handler.handle("vibemk_delete_downtime", {"downtime_id": 7})
+
+        assert '"~"' not in str(self.body(instance))
+
+
+class TestTheDeleteQueryIsBuiltAsData:
+    """The query used to be assembled with f-strings into a JSON *string*, so a
+    quotation mark in a maintenance comment broke the payload — on a delete
+    call, a lever on what gets deleted. The API documents this field as a
+    nested dictionary, and the client serialises the whole body anyway.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_quote_in_a_comment_cannot_break_the_payload(self, handler: Any, mock_checkmk_client: Any) -> None:
+        mock_checkmk_client.post.return_value = {"success": True, "status": 200, "headers": {}, "data": {}}
+        mock_checkmk_client.get.return_value = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {"value": [{"id": "1", "extensions": {"host_name": "web01", "comment": 'say "hi"'}}]},
+        }
+
+        await handler.handle("vibemk_delete_downtime", {"host_name": "web01", "comment": 'say "hi"'})
+
+        call = next(c for c in mock_checkmk_client.post.call_args_list if "delete/invoke" in c.args[0])
+        query = call.kwargs["data"]["query"]
+        assert isinstance(query, dict), "the query must be data, not a hand-built JSON string"
+
+    @pytest.mark.asyncio
+    async def test_the_host_is_matched_exactly(self, handler: Any, mock_checkmk_client: Any) -> None:
+        # "web01" as a substring also matches "web01-backup".
+        mock_checkmk_client.post.return_value = {"success": True, "status": 200, "headers": {}, "data": {}}
+        mock_checkmk_client.get.return_value = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {"value": [{"id": "1", "extensions": {"host_name": "web01", "comment": "x"}}]},
+        }
+
+        await handler.handle("vibemk_delete_downtime", {"host_name": "web01", "comment": "x"})
+
+        call = next(c for c in mock_checkmk_client.post.call_args_list if "delete/invoke" in c.args[0])
+        assert '"~"' not in str(call.kwargs["data"]["query"])

@@ -292,16 +292,17 @@ class MetricsHandler(BaseHandler):
             return self.error_response("Missing parameter", "host_name is required")
 
         # Get host with metrics column to see available metrics
-        query_data = {"query": f'{{"op": "=", "left": "name", "right": "{host_name}"}}'}
+        query_data = {"query": {"op": "=", "left": "name", "right": host_name}}
 
         if service_description:
             # Get service metrics
-            query_data["query"] = (
-                '{"op": "and", "expr": ['
-                f'{{"op": "=", "left": "host_name", "right": "{host_name}"}}, '
-                f'{{"op": "=", "left": "description", "right": "{service_description}"}}'
-                "]}"
-            )
+            query_data["query"] = {
+                "op": "and",
+                "expr": [
+                    {"op": "=", "left": "host_name", "right": host_name},
+                    {"op": "=", "left": "description", "right": service_description},
+                ],
+            }
             result = self.client.get("domain-types/service/collections/all", params=query_data)
         else:
             # Get host metrics
