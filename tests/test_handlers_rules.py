@@ -185,3 +185,51 @@ class TestCreateHonoursThePositionItAdvertises:
         answer = text(result)
         assert RULE_ID in answer, "the caller needs the id of the rule that was created"
         assert "position" in answer.lower()
+
+
+class TestRuleValuesSurviveTheirOwnQuotes:
+    """CheckMK expects value_raw as a Python literal, and this built one by
+    hand: str(value) with every double quote rewritten to a single one, and
+    strings wrapped in f"'{value}'".
+
+    Both break on their own content. A dict holding `'He said "no"'` became
+    `{'k': 'He said 'no''}`, which is not parseable, and an apostrophe in a
+    plain string did the same. repr() is the operation being approximated
+    here, and it gets the quoting right.
+    """
+
+    @pytest.fixture
+    def handler(self, mock_checkmk_client: Any) -> RulesHandler:
+        return RulesHandler(mock_checkmk_client)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "value",
+        [
+            {"levels": (80.0, 90.0)},
+            {"comment": 'He said "no"'},
+            {"path": "it's here"},
+            ["a", "b"],
+            ['say "what"', "plain"],
+            "a plain string",
+            "o'clock",
+            42,
+            True,
+        ],
+    )
+    async def test_the_literal_parses_back_to_what_went_in(self, handler: RulesHandler, value: Any) -> None:
+        import ast
+
+        rendered = await handler._validate_ruleset_value("any_ruleset", value)
+
+        assert ast.literal_eval(rendered) == value
+
+    @pytest.mark.asyncio
+    async def test_a_single_item_list_is_still_flattened(self, handler: RulesHandler) -> None:
+        # Long-standing behaviour for rulesets that want a bare string; kept
+        # deliberately, and now quoted correctly.
+        rendered = await handler._validate_ruleset_value("any_ruleset", ["it's one"])
+
+        import ast
+
+        assert ast.literal_eval(rendered) == "it's one"

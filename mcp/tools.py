@@ -222,7 +222,33 @@ def get_host_tools() -> List[Dict[str, Any]]:
             "description": "🔄 Bulk update hosts - Update multiple hosts at once",
             "inputSchema": {
                 "type": "object",
-                "properties": {"entries": {"type": "array", "description": "List of host update entries"}},
+                "properties": {
+                    "entries": {
+                        "type": "array",
+                        "description": "One entry per host to update",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "host_name": {"type": "string", "description": "Host to update"},
+                                "update_attributes": {
+                                    "type": "object",
+                                    "description": "Attributes to set, leaving the others untouched",
+                                },
+                                "attributes": {
+                                    "type": "object",
+                                    "description": "Replace the host's attributes entirely with these",
+                                },
+                                "remove_attributes": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Names of attributes to remove",
+                                },
+                            },
+                            "required": ["host_name"],
+                        },
+                    }
+                },
                 "required": ["entries"],
             },
         },
@@ -1510,6 +1536,11 @@ def get_downtime_tools() -> List[Dict[str, Any]]:
                             "day_of_month",
                         ],
                     },
+                    "force": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Schedule even if the target already has an overlapping downtime",
+                    },
                 },
                 "required": ["host_name"],
             },
@@ -1561,6 +1592,11 @@ def get_downtime_tools() -> List[Dict[str, Any]]:
                             "weekday_end",
                             "day_of_month",
                         ],
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Schedule even if the target already has an overlapping downtime",
                     },
                 },
                 "required": ["host_name", "service_descriptions"],

@@ -186,23 +186,22 @@ class RulesHandler(BaseHandler):
         ]
 
     async def _validate_ruleset_value(self, _ruleset_name: str, value: Any) -> str:
-        """Validate and format value for specific ruleset"""
-        # This method can be extended to handle specific ruleset requirements
-        # For now, implement basic Python literal formatting
+        """Render a rule value as the Python literal CheckMK stores in value_raw.
 
-        if isinstance(value, dict):
-            # For rulesets like host_label_rules: {'key': 'value'}
-            return str(value).replace('"', "'")
-        if isinstance(value, list):
-            if len(value) == 1:
-                # Single item lists often need to be strings
-                return f"'{value[0]}'"
-            # Multi-item lists stay as Python list literals
-            return str(value).replace('"', "'")
-        if isinstance(value, str):
-            # String values need to be Python string literals
-            return f"'{value}'"
-        return str(value)
+        This used to build the literal by hand -- str(value) with every double
+        quote rewritten to a single one, and strings wrapped in f"'{value}'".
+        Both break on their own content: a comment reading He said "no" came
+        out as 'He said 'no'', which does not parse, and an apostrophe in a
+        plain string did the same. repr() is exactly the operation those lines
+        were approximating.
+        """
+        # A one-item list is flattened to the bare value: long-standing
+        # behaviour for rulesets that expect a single string rather than a
+        # list of one. Kept deliberately, now quoted correctly.
+        if isinstance(value, list) and len(value) == 1:
+            return repr(value[0])
+
+        return repr(value)
 
     async def _create_rule(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create a new monitoring rule"""
