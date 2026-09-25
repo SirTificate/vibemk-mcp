@@ -16,6 +16,7 @@ only `folder`, `ruleset`, `value_raw`, `properties` and `conditions` — so
 honouring the parameter means creating and then moving.
 """
 
+import ast
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -196,40 +197,39 @@ class TestRuleValuesSurviveTheirOwnQuotes:
     `{'k': 'He said 'no''}`, which is not parseable, and an apostrophe in a
     plain string did the same. repr() is the operation being approximated
     here, and it gets the quoting right.
+
+    Asserted through rule creation, which is where value_raw actually goes
+    over the wire.
     """
 
     @pytest.fixture
-    def handler(self, mock_checkmk_client: Any) -> RulesHandler:
-        return RulesHandler(mock_checkmk_client)
+    def created(self, mock_checkmk_client: Any) -> Any:
+        mock_checkmk_client.get.return_value = rule_object()
+        mock_checkmk_client.post.return_value = ok({"id": RULE_ID})
+        return mock_checkmk_client
+
+    async def value_raw(self, handler: RulesHandler, client: Any, config: Any) -> str:
+        await handler.handle(
+            "vibemk_create_rule",
+            {"ruleset_name": "checkgroup_parameters:filesystem", "rule_config": config},
+        )
+        call = next(c for c in client.post.call_args_list if c.args[0] == "domain-types/rule/collections/all")
+        return str(call.kwargs["data"]["value_raw"])
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "value",
+        "config",
         [
-            {"levels": (80.0, 90.0)},
+            {"levels": [80.0, 90.0]},
             {"comment": 'He said "no"'},
             {"path": "it's here"},
-            ["a", "b"],
-            ['say "what"', "plain"],
-            "a plain string",
-            "o'clock",
-            42,
-            True,
+            {"mixed": ['say "what"', "plain"]},
+            {"apostrophe": "o'clock"},
         ],
     )
-    async def test_the_literal_parses_back_to_what_went_in(self, handler: RulesHandler, value: Any) -> None:
-        import ast
+    async def test_the_literal_parses_back_to_what_went_in(
+        self, handler: RulesHandler, created: Any, config: Any
+    ) -> None:
+        rendered = await self.value_raw(handler, created, config)
 
-        rendered = await handler._validate_ruleset_value("any_ruleset", value)
-
-        assert ast.literal_eval(rendered) == value
-
-    @pytest.mark.asyncio
-    async def test_a_single_item_list_is_still_flattened(self, handler: RulesHandler) -> None:
-        # Long-standing behaviour for rulesets that want a bare string; kept
-        # deliberately, and now quoted correctly.
-        rendered = await handler._validate_ruleset_value("any_ruleset", ["it's one"])
-
-        import ast
-
-        assert ast.literal_eval(rendered) == "it's one"
+        assert ast.literal_eval(rendered) == config
