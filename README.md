@@ -89,7 +89,7 @@ This project is in the alpha stage and under development. I accept no liability 
 
 | CheckMK Version | Status | Notes |
 |-----------------|--------|-------|
-| **2.4.x** | ✅ Verified | All 149 endpoint calls checked against the API document of a 2.4.0p36 Raw site; read-only tools additionally exercised against it |
+| **2.4.x** | ✅ Verified | All 151 endpoint calls checked against the API document of a 2.4.0p36 Raw site; read-only tools additionally exercised against it |
 | **2.3.x** | ⚠️ Expected to work | Same REST API version (1.0), not re-verified since the fork |
 | **2.2.x and older** | 🔴 Unsupported | |
 
@@ -109,7 +109,18 @@ Every endpoint call is now checked against the OpenAPI document the site publish
 ```
 
 That document carries the exact version *and* edition, so it cannot describe an endpoint a given
-site does not have. All 149 calls match a path and a verb that 2.4.0p36 Raw serves.
+site does not have. All 151 calls match a path and a verb that 2.4.0p36 Raw serves.
+
+**You can check this against your own site**, which is the point — your version and edition are not
+necessarily mine:
+
+```bash
+python scripts/verify_endpoints.py          # reads the document from the site in your .env
+python scripts/verify_endpoints.py --spec downloaded.yaml
+```
+
+It exits non-zero when a call has no matching path and verb, so it works as a pre-push check. The
+one dependency is PyYAML.
 
 Three tools were removed rather than left to fail quietly, because CheckMK's REST API offers no
 equivalent: `vibemk_reschedule_check`, `vibemk_get_custom_graph` and `vibemk_search_metrics`. 114
