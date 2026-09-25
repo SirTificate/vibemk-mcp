@@ -156,13 +156,22 @@ class MonitoringHandler(BaseHandler):
         if not ack_type or not host_name or not comment:
             return self.error_response("Missing parameters", "acknowledge_type, host_name, and comment are required")
 
+        # CheckMK's own defaults, and steerable. These used to be wired to True
+        # with no way to change them, and the schema mentioned neither -- so a
+        # caller who wanted a silent acknowledgement had no way to ask, and no
+        # way to find out that the flags existed.
+        sticky = arguments.get("sticky", True)
+        notify = arguments.get("notify", True)
+        persistent = arguments.get("persistent", False)
+
         if ack_type == "host":
             data = {
                 "acknowledge_type": "host",
                 "host_name": host_name,
                 "comment": comment,
-                "sticky": True,
-                "notify": True,
+                "sticky": sticky,
+                "notify": notify,
+                "persistent": persistent,
             }
             result = self.client.post("domain-types/acknowledge/collections/host", data=data)
             target = f"host '{host_name}'"
@@ -178,8 +187,9 @@ class MonitoringHandler(BaseHandler):
                 "host_name": host_name,
                 "service_description": service_description,
                 "comment": comment,
-                "sticky": True,
-                "notify": True,
+                "sticky": sticky,
+                "notify": notify,
+                "persistent": persistent,
             }
             result = self.client.post("domain-types/acknowledge/collections/service", data=data)
             target = f"service '{host_name}/{service_description}'"

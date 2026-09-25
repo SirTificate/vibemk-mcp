@@ -2,6 +2,66 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+Findings from an external review of the server, each verified against the API document
+the instance publishes before being acted on. Several change behaviour; the first four
+change it in ways an existing caller will notice.
+
+### Fixed
+- **Deleting one downtime deleted more than one.** `vibemk_delete_downtime` resolved its
+  `downtime_id` into the downtime's host and comment and then deleted by a *regex* query
+  built from those. A comment is optional when creating a downtime, so a downtime without
+  one dropped the comment filter and took every downtime on the host with it; with a
+  comment, `op: "~"` is a substring match, so deleting "Patch" also deleted "Patching". An
+  id now goes to `delete_type: "by_id"`, which deletes exactly one
+- **Acknowledgements were identified by guesswork.** `vibemk_list_acknowledgements` treated
+  any comment containing "ack" as a substring — or merely marked persistent — as an
+  acknowledgement, so "track the vendor ticket" and "packaging" both qualified, and those
+  ids are what `vibemk_remove_acknowledgement` deletes by. CheckMK types every comment;
+  the listing now asks for `entry_type` 4
+- **Bulk discovery removed services nobody asked it to remove.** CheckMK defaults every
+  `BulkDiscoveryOptions` flag to False; this server overrode four of them with True, so a
+  call carrying nothing but hostnames removed vanished services. Only the additive option
+  is on by default now. The single-host fallback also mapped `tabula_rasa` — remove
+  everything and rediscover — onto a request with every option off, and reported success
+- **The three acknowledge tools disagreed with each other.** `vibemk_acknowledge_problem`
+  wired `sticky` and `notify` to True and declared neither, while the two specific tools
+  defaulted both to False. CheckMK's own schema defaults them to True, so all three now
+  follow it, all three are steerable, and `persistent` is sent where it was not
+- **CheckMK's explanation reached nobody.** The client parsed the error body into the
+  exception, but handlers rendered only `str(e)` — "HTTP 400: Bad Request" while CheckMK
+  had said which field was wrong. The detail is now part of the message
+- **Query expressions were assembled with f-strings** in four modules, so a quotation mark
+  in a service name or maintenance comment produced broken JSON — on a delete call, a
+  lever on what gets deleted. They are built as data, and comparisons are exact rather
+  than regex
+- **`vibemk_get_checkmk_hosts` ignored `folder` and `effective_attributes`** although both
+  were declared and the description promised folder filtering. CheckMK serves the listing
+  itself
+- **Rule values broke on their own quotes.** `value_raw` was built with
+  `str(value).replace('"', "'")`, so a comment reading `He said "no"` produced a literal
+  that does not parse. Rendered with `repr` now
+- **5xx retries applied to every method**, so a POST that timed out in a proxy could be
+  re-issued after the first attempt had already taken effect. Retries are limited to the
+  methods HTTP calls idempotent, 429 is retried with `Retry-After`, and an explicitly empty
+  body is sent as `{}` rather than dropped
+
+### Added
+- `scripts/verify_endpoints.py` — checks every endpoint call against the API document your
+  own site publishes, and exits non-zero on a mismatch. This is the check that catches the
+  class of defect the last two releases were about
+
+### Changed
+- `force` is declared on the downtime scheduling tools that read it, and
+  `vibemk_bulk_update_hosts` declares the shape of an entry instead of an untyped array
+
+### Documentation
+- The README implied Business Intelligence and the Event Console were features of this
+  server. They are not implemented at all. The section now separates the edition
+  correction it was making from a claim about this server, and a new "Not implemented"
+  section lists the notable gaps — of 131 endpoints a Raw site publishes, 59 are used
+
 ## [0.5.0] - 2026-09-14
 
 ### Fixed

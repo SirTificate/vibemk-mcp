@@ -24,6 +24,7 @@ from typing import Any, Dict, List
 import pytest
 
 from handlers.acknowledgements import AcknowledgementHandler
+from mcp.tools import get_all_tools
 
 COMMENT_DELETE = "domain-types/comment/actions/delete/invoke"
 ACK_DELETE = "domain-types/acknowledge/actions/delete/invoke"
@@ -138,3 +139,103 @@ class TestRemovingByCommentPattern:
             {"delete_type": "by_id", "comment_id": PATTERN_COMMENT_ID, "site_id": mock_checkmk_client.config.site}
         ]
         assert not mock_checkmk_client.delete.called
+
+
+# CheckMK types every comment: the Livestatus `entry_type` column is 1 for a user
+# comment, 2 for downtime, 3 for flapping and 4 for an acknowledgement. The code
+# used to ignore that and guess — "ack" as a substring of the comment text, or
+# merely the persistent flag — which matches "track the vendor ticket",
+# "packaging", and every persistent comment ever written. Those guesses fed
+# remove_acknowledgement, which deletes by comment id.
+ACK_ENTRY_TYPE = "4"
+COMMENT_COLLECTION = "domain-types/comment/collections/all"
+
+
+class TestAcknowledgementsAreIdentifiedByTheirType:
+    @pytest.mark.asyncio
+    async def test_the_listing_asks_checkmk_for_acknowledgements(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        await handler.handle("vibemk_list_acknowledgements", {})
+
+        call = next(c for c in mock_checkmk_client.get.call_args_list if c.args[0] == COMMENT_COLLECTION)
+        assert call.kwargs["params"]["query"] == {
+            "op": "=",
+            "left": "entry_type",
+            "right": ACK_ENTRY_TYPE,
+        }, "the type is a column CheckMK can filter on; guessing from the text is not needed"
+
+    @pytest.mark.asyncio
+    async def test_a_persistent_note_is_not_an_acknowledgement(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        # The old rule treated every persistent comment as an acknowledgement.
+        mock_checkmk_client.get.return_value = ok({"value": []})
+
+        result = await handler.handle("vibemk_list_acknowledgements", {})
+
+        assert "No active acknowledgements" in result[0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_the_text_is_never_searched_for_ack(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        # Whatever CheckMK returns for the query is an acknowledgement by
+        # definition — including one whose text contains no form of "ack".
+        mock_checkmk_client.get.return_value = ok(
+            {"value": [{"id": "9", "extensions": {"host_name": HOST, "comment": "disk replaced, watching"}}]}
+        )
+
+        result = await handler.handle("vibemk_list_acknowledgements", {})
+
+        assert "disk replaced, watching" in result[0]["text"]
+
+
+class TestAcknowledgementFlagsAgreeWithCheckmk:
+    """Three tools acknowledge a problem, and they disagreed about what an
+    acknowledgement is.
+
+    vibemk_acknowledge_problem hard-wired sticky and notify to True and
+    offered no way to change them. The two specific tools read both from the
+    caller and defaulted them to False. CheckMK's own schema defaults sticky
+    and notify to True and persistent to False, so it was the pair defaulting
+    to False that diverged — and either way, the same request through two
+    tools produced two different acknowledgements.
+    """
+
+    ACK_HOST = "domain-types/acknowledge/collections/host"
+
+    def body(self, client: Any) -> Dict[str, Any]:
+        return dict(next(c for c in client.post.call_args_list if c.args[0] == self.ACK_HOST).kwargs["data"])
+
+    @pytest.mark.asyncio
+    async def test_the_specific_tool_follows_checkmks_defaults(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        await handler.handle("vibemk_acknowledge_host_problem", {"host_name": HOST, "comment": "looking into it"})
+
+        body = self.body(mock_checkmk_client)
+        assert body["sticky"] is True
+        assert body["notify"] is True
+        assert body["persistent"] is False
+
+    @pytest.mark.asyncio
+    async def test_the_caller_can_still_turn_them_off(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        await handler.handle(
+            "vibemk_acknowledge_host_problem",
+            {"host_name": HOST, "comment": "quietly", "sticky": False, "notify": False},
+        )
+
+        body = self.body(mock_checkmk_client)
+        assert body["sticky"] is False
+        assert body["notify"] is False
+
+    def test_the_schemas_no_longer_advertise_false(self) -> None:
+        for name in ("vibemk_acknowledge_host_problem", "vibemk_acknowledge_service_problem"):
+            tool = next(t for t in get_all_tools() if t["name"] == name)
+            properties = tool["inputSchema"]["properties"]
+            assert properties["sticky"].get("default") is True, name
+            assert properties["notify"].get("default") is True, name
+            assert properties["persistent"].get("default") is False, name

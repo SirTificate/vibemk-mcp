@@ -16,6 +16,7 @@ only `folder`, `ruleset`, `value_raw`, `properties` and `conditions` — so
 honouring the parameter means creating and then moving.
 """
 
+import ast
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -185,3 +186,50 @@ class TestCreateHonoursThePositionItAdvertises:
         answer = text(result)
         assert RULE_ID in answer, "the caller needs the id of the rule that was created"
         assert "position" in answer.lower()
+
+
+class TestRuleValuesSurviveTheirOwnQuotes:
+    """CheckMK expects value_raw as a Python literal, and this built one by
+    hand: str(value) with every double quote rewritten to a single one, and
+    strings wrapped in f"'{value}'".
+
+    Both break on their own content. A dict holding `'He said "no"'` became
+    `{'k': 'He said 'no''}`, which is not parseable, and an apostrophe in a
+    plain string did the same. repr() is the operation being approximated
+    here, and it gets the quoting right.
+
+    Asserted through rule creation, which is where value_raw actually goes
+    over the wire.
+    """
+
+    @pytest.fixture
+    def created(self, mock_checkmk_client: Any) -> Any:
+        mock_checkmk_client.get.return_value = rule_object()
+        mock_checkmk_client.post.return_value = ok({"id": RULE_ID})
+        return mock_checkmk_client
+
+    async def value_raw(self, handler: RulesHandler, client: Any, config: Any) -> str:
+        await handler.handle(
+            "vibemk_create_rule",
+            {"ruleset_name": "checkgroup_parameters:filesystem", "rule_config": config},
+        )
+        call = next(c for c in client.post.call_args_list if c.args[0] == "domain-types/rule/collections/all")
+        return str(call.kwargs["data"]["value_raw"])
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"levels": [80.0, 90.0]},
+            {"comment": 'He said "no"'},
+            {"path": "it's here"},
+            {"mixed": ['say "what"', "plain"]},
+            {"apostrophe": "o'clock"},
+        ],
+    )
+    async def test_the_literal_parses_back_to_what_went_in(
+        self, handler: RulesHandler, created: Any, config: Any
+    ) -> None:
+        rendered = await self.value_raw(handler, created, config)
+
+        assert ast.literal_eval(rendered) == config

@@ -13,6 +13,10 @@ logger = get_logger(__name__)
 
 _CHECKMK_24_PLUS_VERSION_PREFIXES = ("2.4", "2.5")
 
+ACKNOWLEDGEMENT_COMMENTS = "domain-types/comment/collections/all"
+# Livestatus comments.entry_type: 1 user, 2 downtime, 3 flapping, 4 acknowledgement.
+ACKNOWLEDGEMENT_ENTRY_TYPE = "4"
+
 
 class AcknowledgementHandler(BaseHandler):
     """Handler for CheckMK acknowledgement operations"""
@@ -88,9 +92,9 @@ class AcknowledgementHandler(BaseHandler):
         host_name = args.get("host_name")
         try:
             comment = args.get("comment", "Problem acknowledged via vibeMK")
-            sticky = args.get("sticky", False)
+            sticky = args.get("sticky", True)
             persistent = args.get("persistent", False)
-            notify = args.get("notify", False)
+            notify = args.get("notify", True)
             expire_on = args.get("expire_on")  # Optional expiration time
 
             if not host_name:
@@ -146,9 +150,9 @@ class AcknowledgementHandler(BaseHandler):
         service_description = args.get("service_description")
         try:
             comment = args.get("comment", "Problem acknowledged via vibeMK")
-            sticky = args.get("sticky", False)
+            sticky = args.get("sticky", True)
             persistent = args.get("persistent", False)
-            notify = args.get("notify", False)
+            notify = args.get("notify", True)
             expire_on = args.get("expire_on")  # Optional expiration time
 
             if not host_name or not service_description:
@@ -203,24 +207,19 @@ class AcknowledgementHandler(BaseHandler):
     async def list_acknowledgements(self, _args: Dict[str, Any]) -> List[Dict[str, str]]:
         """List all current acknowledgements"""
         try:
-            # Use CheckMK 2.4 compatible endpoint - acknowledgements are stored as comments
-            endpoint = "domain-types/comment/collections/all"
-            result = self.client.get(endpoint)
+            # Acknowledgements are comments, and CheckMK types every comment:
+            # the Livestatus entry_type column is 1 for a user comment, 2 for
+            # downtime, 3 for flapping and 4 for an acknowledgement. Asking for
+            # that type is exact. The previous rule guessed from the text -- it
+            # took any comment containing "ack" as a substring, or merely marked
+            # persistent -- so "track the vendor ticket" and "packaging" both
+            # qualified, and those ids are what remove_acknowledgement deletes by.
+            result = self.client.get(
+                ACKNOWLEDGEMENT_COMMENTS,
+                params={"query": {"op": "=", "left": "entry_type", "right": ACKNOWLEDGEMENT_ENTRY_TYPE}},
+            )
 
-            if not result.get("success"):
-                return [{"type": "text", "text": "❌ Unable to retrieve acknowledgements from CheckMK API"}]
-
-            comments = result.get("data", {}).get("value", [])
-
-            # Filter for acknowledgement comments (they have specific characteristics)
-            acknowledgements = []
-            for comment in comments:
-                extensions = comment.get("extensions", {})
-                # Acknowledgements typically have certain markers or are persistent comments
-                # In CheckMK 2.4, we filter by comment content or other indicators
-                comment_text = extensions.get("comment", "").lower()
-                if "acknowledge" in comment_text or "ack" in comment_text or extensions.get("persistent", False):
-                    acknowledgements.append(comment)
+            acknowledgements = result.get("data", {}).get("value", [])
 
             if not acknowledgements:
                 return [{"type": "text", "text": "✅ **Acknowledgements List**\n\nNo active acknowledgements found."}]
@@ -320,9 +319,13 @@ class AcknowledgementHandler(BaseHandler):
 
     def _remove_acknowledgements_by_pattern(self, comment_pattern: str) -> List[Dict[str, str]]:
         """Remove every acknowledgement whose comment text matches a pattern"""
-        list_result = self.client.get("domain-types/comment/collections/all")
-        if not list_result.get("success"):
-            return [{"type": "text", "text": "❌ Unable to retrieve comments for pattern matching"}]
+        # Only acknowledgements, decided by CheckMK rather than by looking for
+        # "ack" in the text. There is no endpoint that deletes by comment text,
+        # so the matching itself still happens here.
+        list_result = self.client.get(
+            ACKNOWLEDGEMENT_COMMENTS,
+            params={"query": {"op": "=", "left": "entry_type", "right": ACKNOWLEDGEMENT_ENTRY_TYPE}},
+        )
 
         comments = list_result.get("data", {}).get("value", [])
         deleted_count = 0
@@ -332,10 +335,7 @@ class AcknowledgementHandler(BaseHandler):
             comment_text = extensions.get("comment", "")
             comment_id = comment.get("id")
 
-            # Check if comment matches pattern and appears to be an acknowledgement
-            if comment_pattern.lower() in comment_text.lower() and (
-                "acknowledge" in comment_text.lower() or "ack" in comment_text.lower()
-            ):
+            if comment_pattern.lower() in comment_text.lower():
                 delete_result = self._delete_comment(comment_id)
                 if delete_result.get("success"):
                     deleted_count += 1

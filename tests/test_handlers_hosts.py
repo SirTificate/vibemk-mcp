@@ -295,3 +295,62 @@ class TestEffectiveAttributes:
 
         params = handler.client.get.call_args.kwargs.get("params", {})
         assert params.get("effective_attributes") == "true", params
+
+
+class TestListingHostsReadsItsArguments:
+    """vibemk_get_checkmk_hosts declared `folder` and `effective_attributes`,
+    its description promised folder filtering, and the handler's signature was
+    `_arguments` — it read neither. The same shape as the `position` bug on
+    rule creation: advertised, accepted, ignored, success reported.
+
+    CheckMK serves a folder-scoped listing of its own,
+    GET /objects/folder_config/{folder}/collections/hosts, which takes
+    effective_attributes. Folder paths go over the wire with ~ separators.
+    """
+
+    @pytest.fixture
+    def host_handler(self, mock_checkmk_client):
+        return HostHandler(mock_checkmk_client)
+
+    @pytest.fixture
+    def listing(self, mock_checkmk_client):
+        mock_checkmk_client.get.return_value = {
+            "success": True,
+            "status": 200,
+            "headers": {},
+            "data": {"value": [{"id": "web01", "extensions": {"name": "web01", "state": 0}}]},
+        }
+        return mock_checkmk_client
+
+    @pytest.mark.asyncio
+    async def test_without_a_folder_the_monitoring_collection_is_used(self, host_handler, listing):
+        # Unchanged behaviour: it carries live state, which the Setup view does not.
+        await host_handler.handle("vibemk_get_checkmk_hosts", {})
+
+        assert listing.get.call_args.args[0] == "domain-types/host/collections/all"
+
+    @pytest.mark.asyncio
+    async def test_a_folder_narrows_the_listing(self, host_handler, listing):
+        await host_handler.handle("vibemk_get_checkmk_hosts", {"folder": "/servers/linux"})
+
+        assert listing.get.call_args.args[0] == "objects/folder_config/~servers~linux/collections/hosts"
+
+    @pytest.mark.asyncio
+    async def test_the_root_folder_is_addressable(self, host_handler, listing):
+        await host_handler.handle("vibemk_get_checkmk_hosts", {"folder": "/"})
+
+        assert listing.get.call_args.args[0] == "objects/folder_config/~/collections/hosts"
+
+    @pytest.mark.asyncio
+    async def test_effective_attributes_are_requested_when_asked_for(self, host_handler, listing):
+        await host_handler.handle(
+            "vibemk_get_checkmk_hosts", {"folder": "/servers/linux", "effective_attributes": True}
+        )
+
+        assert listing.get.call_args.kwargs["params"]["effective_attributes"] == "true"
+
+    @pytest.mark.asyncio
+    async def test_effective_attributes_are_not_requested_otherwise(self, host_handler, listing):
+        await host_handler.handle("vibemk_get_checkmk_hosts", {"folder": "/servers/linux"})
+
+        assert "effective_attributes" not in listing.get.call_args.kwargs.get("params", {})

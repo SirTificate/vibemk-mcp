@@ -60,15 +60,45 @@ class HostHandler(BaseHandler):
             self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
-    async def _get_hosts(self, _arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Get list of hosts with optional filtering"""
-        # Use the monitoring 'host' collection, not the Setup 'host_config' one:
-        # a read-only/Guest account sees host_config as empty (HTTP 200, value=[]).
-        # Request the 'state' column so we can show live status.
-        result = self.client.get(
-            "domain-types/host/collections/all",
-            params={"columns": ["name", "state"]},
-        )
+    @staticmethod
+    def _folder_for_api(folder: str) -> str:
+        """Address a folder the way CheckMK expects it.
+
+        A folder reads "/servers/linux" but is addressed as "~servers~linux";
+        sending the readable form answers 404 for anything below the root.
+        """
+        if folder in ("", "/", "~"):
+            return "~"
+        return "~" + folder.strip("/").replace("/", "~")
+
+    async def _get_hosts(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get list of hosts, optionally narrowed to one folder.
+
+        Both arguments used to be declared, accepted and ignored -- the
+        signature was `_arguments` -- so a caller asking for one folder was
+        shown every host and told it worked.
+
+        Without a folder the monitoring collection is read rather than the
+        Setup one: a read-only or Guest account sees host_config as empty
+        (HTTP 200, value=[]), and the monitoring view carries live state.
+        With a folder, CheckMK's own folder listing answers, which is where
+        effective_attributes applies.
+        """
+        folder = arguments.get("folder")
+
+        if folder:
+            params: Dict[str, Any] = {}
+            if arguments.get("effective_attributes"):
+                params["effective_attributes"] = "true"
+            result = self.client.get(
+                f"objects/folder_config/{self._folder_for_api(folder)}/collections/hosts",
+                params=params,
+            )
+        else:
+            result = self.client.get(
+                "domain-types/host/collections/all",
+                params={"columns": ["name", "state"]},
+            )
 
         if not result.get("success"):
             return self.error_response("Failed to retrieve hosts")

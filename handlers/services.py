@@ -412,13 +412,16 @@ class ServiceHandler(BaseHandler):
         # here would otherwise skip the "all methods failed" summary entirely
         # and surface as a generic error instead.
         try:
+            # A dict, not a hand-built JSON string: a service description
+            # containing a quotation mark otherwise produces a broken query.
             query_data = {
-                "query": (
-                    '{"op": "and", "expr": ['
-                    f'{{"op": "=", "left": "host_name", "right": "{host_name}"}}, '
-                    f'{{"op": "=", "left": "description", "right": "{service_description}"}}'
-                    "]}"
-                )
+                "query": {
+                    "op": "and",
+                    "expr": [
+                        {"op": "=", "left": "host_name", "right": host_name},
+                        {"op": "=", "left": "description", "right": service_description},
+                    ],
+                }
             }
             result = self.client.get("domain-types/service/collections/all", params=query_data)
             self.logger.debug("Service collection query result: %s", result)

@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 import pytest
 
 from handlers.monitoring import MonitoringHandler
+from mcp.tools import get_all_tools
 
 HOST_COLUMNS = ["name", "state"]
 
@@ -114,3 +115,48 @@ class TestNoProblems:
         result = await handler.handle("vibemk_get_current_problems", {})
 
         assert "No current problems" in result[0]["text"]
+
+
+class TestTheGenericAcknowledgeToolIsSteerable:
+    """vibemk_acknowledge_problem hard-wired sticky and notify to True. The
+    values match CheckMK's defaults, so the acknowledgements were right — but
+    a caller could not ask for anything else, and the tool schema did not
+    mention either flag, so a model had no way to know they existed."""
+
+    @pytest.mark.asyncio
+    async def test_the_defaults_are_checkmks(self, handler, mock_checkmk_client):
+        mock_checkmk_client.post.return_value = collection([])
+
+        await handler.handle(
+            "vibemk_acknowledge_problem",
+            {"acknowledge_type": "host", "host_name": "web01", "comment": "on it"},
+        )
+
+        body = mock_checkmk_client.post.call_args.kwargs["data"]
+        assert body["sticky"] is True
+        assert body["notify"] is True
+
+    @pytest.mark.asyncio
+    async def test_the_caller_can_override_them(self, handler, mock_checkmk_client):
+        mock_checkmk_client.post.return_value = collection([])
+
+        await handler.handle(
+            "vibemk_acknowledge_problem",
+            {
+                "acknowledge_type": "host",
+                "host_name": "web01",
+                "comment": "quietly",
+                "sticky": False,
+                "notify": False,
+            },
+        )
+
+        body = mock_checkmk_client.post.call_args.kwargs["data"]
+        assert body["sticky"] is False
+        assert body["notify"] is False
+
+    def test_the_flags_are_declared(self):
+        tool = next(t for t in get_all_tools() if t["name"] == "vibemk_acknowledge_problem")
+
+        for flag in ("sticky", "notify"):
+            assert flag in tool["inputSchema"]["properties"], f"{flag} is sent but never advertised"

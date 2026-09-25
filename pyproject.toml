@@ -155,6 +155,8 @@ allowed-confusables = ["ℹ", "➕"]
 # handler module). Restructuring it is separate work from this pass.
 "handlers/users.py" = ["PLR0911"]
 "mcp/tools.py" = ["E501"]
+# T201 only: this is a command-line tool whose entire output is what it prints.
+"scripts/verify_endpoints.py" = ["T201"]
 # ANN001/ANN201/ANN202/ANN204 only, across every tests/ entry below: mirrors the
 # tests.* mypy override above — a test function or fixture taking a mock and
 # returning None (or nothing) gains nothing from being told so on every one.
