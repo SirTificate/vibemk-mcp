@@ -13,9 +13,7 @@ assumption. They are unreachable, and a test that mocks success=False to
 exercise one is testing something that cannot happen.
 """
 
-from typing import Any, Dict
-
-import pytest
+import inspect
 
 from api.client import CheckMKClient
 from api.exceptions import CheckMKAPIError, CheckMKError
@@ -56,12 +54,10 @@ class TestTheExplanationSurvivesToTheMessage:
 
 
 class TestTheClientRaisesRatherThanReporting:
-    def test_every_successful_result_is_marked_successful(self, mock_config: Any) -> None:
+    def test_every_successful_result_is_marked_successful(self) -> None:
         # The invariant the handlers' `if not result.get("success")` branches
         # were written against: there is no other value. Asserting it here
         # keeps the next reader from adding a branch that cannot run.
-        import inspect
-
         source = inspect.getsource(CheckMKClient)
 
         assert source.count('"success"') == 1, "a second success value would make the branches meaningful again"
