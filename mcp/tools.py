@@ -327,6 +327,21 @@ def get_monitoring_tools() -> List[Dict[str, Any]]:
                     "host_name": {"type": "string", "description": "Name of the host"},
                     "service_description": {"type": "string", "description": "Service description (for service ack)"},
                     "comment": {"type": "string", "description": "Acknowledgment comment"},
+                    "sticky": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Hold the acknowledgement until the object returns to UP/OK",
+                    },
+                    "notify": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Send notifications to the configured contacts",
+                    },
+                    "persistent": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Keep the comment after the acknowledgement is removed",
+                    },
                 },
                 "required": ["acknowledge_type", "host_name", "comment"],
             },
@@ -1205,15 +1220,18 @@ def get_acknowledgement_tools() -> List[Dict[str, Any]]:
                     "comment": {"type": "string", "description": "Why the problem is being acknowledged"},
                     "sticky": {
                         "type": "boolean",
-                        "description": "Keep the acknowledgement until the host returns to UP (default: false)",
+                        "default": True,
+                        "description": "Hold the acknowledgement until the host returns to UP",
                     },
                     "persistent": {
                         "type": "boolean",
-                        "description": "Keep the comment after the acknowledgement is removed (default: false)",
+                        "default": False,
+                        "description": "Keep the comment after the acknowledgement is removed",
                     },
                     "notify": {
                         "type": "boolean",
-                        "description": "Notify contacts about the acknowledgement (default: false)",
+                        "default": True,
+                        "description": "Send notifications to the configured contacts",
                     },
                     "expire_on": {
                         "type": "string",
@@ -1237,15 +1255,18 @@ def get_acknowledgement_tools() -> List[Dict[str, Any]]:
                     "comment": {"type": "string", "description": "Why the problem is being acknowledged"},
                     "sticky": {
                         "type": "boolean",
-                        "description": "Keep the acknowledgement until the service returns to OK (default: false)",
+                        "default": True,
+                        "description": "Hold the acknowledgement until the service returns to OK",
                     },
                     "persistent": {
                         "type": "boolean",
-                        "description": "Keep the comment after the acknowledgement is removed (default: false)",
+                        "default": False,
+                        "description": "Keep the comment after the acknowledgement is removed",
                     },
                     "notify": {
                         "type": "boolean",
-                        "description": "Notify contacts about the acknowledgement (default: false)",
+                        "default": True,
+                        "description": "Send notifications to the configured contacts",
                     },
                     "expire_on": {
                         "type": "string",

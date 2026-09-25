@@ -92,9 +92,9 @@ class AcknowledgementHandler(BaseHandler):
         host_name = args.get("host_name")
         try:
             comment = args.get("comment", "Problem acknowledged via vibeMK")
-            sticky = args.get("sticky", False)
+            sticky = args.get("sticky", True)
             persistent = args.get("persistent", False)
-            notify = args.get("notify", False)
+            notify = args.get("notify", True)
             expire_on = args.get("expire_on")  # Optional expiration time
 
             if not host_name:
@@ -150,9 +150,9 @@ class AcknowledgementHandler(BaseHandler):
         service_description = args.get("service_description")
         try:
             comment = args.get("comment", "Problem acknowledged via vibeMK")
-            sticky = args.get("sticky", False)
+            sticky = args.get("sticky", True)
             persistent = args.get("persistent", False)
-            notify = args.get("notify", False)
+            notify = args.get("notify", True)
             expire_on = args.get("expire_on")  # Optional expiration time
 
             if not host_name or not service_description:

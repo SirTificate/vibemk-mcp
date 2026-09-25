@@ -24,6 +24,7 @@ from typing import Any, Dict, List
 import pytest
 
 from handlers.acknowledgements import AcknowledgementHandler
+from mcp.tools import get_all_tools
 
 COMMENT_DELETE = "domain-types/comment/actions/delete/invoke"
 ACK_DELETE = "domain-types/acknowledge/actions/delete/invoke"
@@ -188,3 +189,53 @@ class TestAcknowledgementsAreIdentifiedByTheirType:
         result = await handler.handle("vibemk_list_acknowledgements", {})
 
         assert "disk replaced, watching" in result[0]["text"]
+
+
+class TestAcknowledgementFlagsAgreeWithCheckmk:
+    """Three tools acknowledge a problem, and they disagreed about what an
+    acknowledgement is.
+
+    vibemk_acknowledge_problem hard-wired sticky and notify to True and
+    offered no way to change them. The two specific tools read both from the
+    caller and defaulted them to False. CheckMK's own schema defaults sticky
+    and notify to True and persistent to False, so it was the pair defaulting
+    to False that diverged — and either way, the same request through two
+    tools produced two different acknowledgements.
+    """
+
+    ACK_HOST = "domain-types/acknowledge/collections/host"
+
+    def body(self, client: Any) -> Dict[str, Any]:
+        return dict(next(c for c in client.post.call_args_list if c.args[0] == self.ACK_HOST).kwargs["data"])
+
+    @pytest.mark.asyncio
+    async def test_the_specific_tool_follows_checkmks_defaults(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        await handler.handle("vibemk_acknowledge_host_problem", {"host_name": HOST, "comment": "looking into it"})
+
+        body = self.body(mock_checkmk_client)
+        assert body["sticky"] is True
+        assert body["notify"] is True
+        assert body["persistent"] is False
+
+    @pytest.mark.asyncio
+    async def test_the_caller_can_still_turn_them_off(
+        self, handler: AcknowledgementHandler, mock_checkmk_client: Any
+    ) -> None:
+        await handler.handle(
+            "vibemk_acknowledge_host_problem",
+            {"host_name": HOST, "comment": "quietly", "sticky": False, "notify": False},
+        )
+
+        body = self.body(mock_checkmk_client)
+        assert body["sticky"] is False
+        assert body["notify"] is False
+
+    def test_the_schemas_no_longer_advertise_false(self) -> None:
+        for name in ("vibemk_acknowledge_host_problem", "vibemk_acknowledge_service_problem"):
+            tool = next(t for t in get_all_tools() if t["name"] == name)
+            properties = tool["inputSchema"]["properties"]
+            assert properties["sticky"].get("default") is True, name
+            assert properties["notify"].get("default") is True, name
+            assert properties["persistent"].get("default") is False, name
