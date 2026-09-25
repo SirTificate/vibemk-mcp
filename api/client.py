@@ -43,7 +43,12 @@ from config import CheckMKConfig, MCPConfig
 logger = logging.getLogger(__name__)
 
 # HTTP status codes that are worth retrying: transient server-side failures.
-_RETRYABLE_STATUS_CODES = (500, 502, 503, 504)
+_RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+# HTTP calls these idempotent: repeating one has the same effect as making it
+# once. POST is not, and re-issuing "actions/delete/invoke" after a gateway
+# timeout can delete a second time -- the first attempt may have succeeded
+# before the proxy gave up.
+_IDEMPOTENT_METHODS = ("GET", "PUT", "DELETE", "HEAD", "OPTIONS")
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -218,7 +223,10 @@ class CheckMKClient:
             if opts.custom_headers:
                 request_headers.update(opts.custom_headers)
 
-            payload = json.dumps(opts.data).encode() if method in ("POST", "PUT", "PATCH") and opts.data else None
+            # `is not None` rather than truthiness: a handler that deliberately
+            # sends {} means an empty JSON object, not "send no body at all".
+            send_body = method in ("POST", "PUT", "PATCH") and opts.data is not None
+            payload = json.dumps(opts.data).encode() if send_body else None
             req = urllib.request.Request(url, data=payload, headers=request_headers, method=method)
 
             logger.debug("%s %s", method, url)
@@ -272,9 +280,13 @@ class CheckMKClient:
         except Exception:  # deliberate, see above
             error_data = {"error": error.reason}
 
-        # Retry logic for transient errors (500, 502, 503, 504)
-        if error.code in _RETRYABLE_STATUS_CODES and options.retry_count < self.config.max_retries:
-            time.sleep(2**options.retry_count)  # Exponential backoff
+        retryable = (
+            error.code in _RETRYABLE_STATUS_CODES
+            and method.upper() in _IDEMPOTENT_METHODS
+            and options.retry_count < self.config.max_retries
+        )
+        if retryable:
+            time.sleep(self._retry_delay(error, options.retry_count))
             return self.request(endpoint, method, replace(options, retry_count=options.retry_count + 1))
 
         # Map HTTP status codes to custom exceptions
@@ -289,6 +301,26 @@ class CheckMKClient:
             raise CheckMKNotFoundError(msg, error.code, error_data)
         msg = f"HTTP {error.code}: {error.reason}"
         raise CheckMKAPIError(msg, error.code, error_data)
+
+    @staticmethod
+    def _retry_delay(error: urllib.error.HTTPError, retry_count: int) -> float:
+        """How long to wait before the next attempt.
+
+        A 429 usually carries Retry-After, and guessing when the server has
+        said what it wants is how a rate limit turns into a longer one. Only
+        the delta-seconds form is honoured; an HTTP-date falls back to the
+        exponential schedule.
+        """
+        backoff = float(2**retry_count)
+
+        header = getattr(error, "headers", None)
+        raw = header.get("Retry-After") if header else None
+        if not raw:
+            return backoff
+        try:
+            return max(0.0, float(str(raw).strip()))
+        except ValueError:
+            return backoff
 
     def _handle_general_error(self, error: Exception) -> Dict[str, Any]:
         """Handle general connection errors"""
