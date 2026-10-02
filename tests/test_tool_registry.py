@@ -8,8 +8,9 @@ reachable.
 """
 
 import ast
+import inspect
 import pathlib
-from typing import Dict
+from typing import Dict, Set
 from unittest.mock import MagicMock
 
 import pytest
@@ -163,3 +164,48 @@ def test_every_dispatch_branch_belongs_to_the_handler_that_holds_it(registry):
                 misrouted[node.value] = f"branch in {path.name}, routed to {routed_to}"
 
     assert misrouted == {}, f"dispatch branches that can never run: {misrouted}"
+
+
+def dispatched_names(path: pathlib.Path) -> Set[str]:
+    """The tool names a handler module acts on.
+
+    A name dispatches when it is compared against (`tool_name == "vibemk_x"`)
+    or keys a dispatch table (`method_map = {"vibemk_x": ...}`). A name that
+    merely appears in a message or a docstring does not.
+    """
+    names: Set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        if isinstance(node, ast.Compare):
+            operands = [node.left, *node.comparators]
+        elif isinstance(node, ast.Dict):
+            operands = [key for key in node.keys if key is not None]
+        else:
+            continue
+        for operand in operands:
+            elements = operand.elts if isinstance(operand, (ast.Tuple, ast.List, ast.Set)) else [operand]
+            names.update(e.value for e in elements if isinstance(e, ast.Constant) and isinstance(e.value, str))
+    return names
+
+
+def test_every_registered_tool_is_dispatched_by_its_handler(registry):
+    """A tool can be declared and routed, and still not be acted on.
+
+    The registry maps a name to a handler; whether that handler's own dispatch
+    has a branch for the name is a separate question none of the guards above
+    can answer. When a branch goes missing -- a handler replaced wholesale, a
+    tool restored without its dispatch -- the tool stays advertised and routed
+    and answers "Unknown tool" at runtime. Upstream ran into exactly that twice
+    (chexma/vibeMK#6).
+    """
+    cache: Dict[pathlib.Path, Set[str]] = {}
+    undispatched: Dict[str, str] = {}
+    for name in sorted(registry.tool_names()):
+        handler = registry.handler_for(name)
+        assert handler is not None
+        source = pathlib.Path(inspect.getfile(type(handler).handle))
+        if source not in cache:
+            cache[source] = dispatched_names(source)
+        if name not in cache[source]:
+            undispatched[name] = source.name
+
+    assert undispatched == {}, f"routed to a handler that never acts on them: {undispatched}"
