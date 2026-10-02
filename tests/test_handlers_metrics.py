@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from api.exceptions import CheckMKNotFoundError
+from api.exceptions import CheckMKAPIError, CheckMKNotFoundError
 from handlers.metrics import MetricsHandler
 from mcp.tools import get_all_tools
 
@@ -131,3 +131,52 @@ def test_the_catalogue_says_which_tools_need_a_commercial_edition(tool):
     descriptions = {entry["name"]: entry["description"] for entry in get_all_tools()}
 
     assert "commercial edition" in descriptions[tool]
+
+
+# The diagnostics read CheckMK's error body from `error_data`, an attribute
+# CheckMKError does not have -- the body is `response_data`. CheckMK's detail
+# never arrived, and against the empty detail every `name in detail` test with
+# an empty name matched, so a host metric's 400 was blamed on a service.
+WITH_DIAGNOSTICS = [
+    ("vibemk_get_host_metrics", {"host_name": "web01", "metric_name": "load1"}),
+    ("vibemk_get_service_metrics", {"host_name": "web01", "service_description": "CPU load", "metric_name": "load1"}),
+    ("vibemk_get_custom_graph", {"custom_graph_id": "my_graph"}),
+]
+
+
+def rejected(status: int, reason: str, detail: str) -> CheckMKAPIError:
+    return CheckMKAPIError(f"HTTP {status}: {reason}", status, {"title": reason, "detail": detail})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("tool", "arguments"), WITH_DIAGNOSTICS)
+async def test_a_400_carries_checkmks_detail(handler, mock_checkmk_client, tool, arguments):
+    mock_checkmk_client.post.side_effect = rejected(400, "Bad Request", "These fields have problems: reduce")
+    mock_checkmk_client.get.side_effect = CheckMKAPIError("HTTP 500: Internal Server Error", 500)
+
+    answer = await handler.handle(tool, arguments)
+
+    assert "These fields have problems: reduce" in answer[0]["text"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("tool", "arguments"), WITH_DIAGNOSTICS)
+async def test_a_400_blames_nothing_the_detail_does_not_name(handler, mock_checkmk_client, tool, arguments):
+    mock_checkmk_client.post.side_effect = rejected(400, "Bad Request", "These fields have problems: reduce")
+    mock_checkmk_client.get.side_effect = CheckMKAPIError("HTTP 500: Internal Server Error", 500)
+
+    answer = await handler.handle(tool, arguments)
+
+    assert "may not exist" not in answer[0]["text"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("tool", "arguments"), WITH_DIAGNOSTICS)
+async def test_another_error_keeps_the_detail_and_names_its_status_once(handler, mock_checkmk_client, tool, arguments):
+    mock_checkmk_client.post.side_effect = rejected(500, "Internal Server Error", "Livestatus is not running")
+    mock_checkmk_client.get.side_effect = CheckMKAPIError("HTTP 500: Internal Server Error", 500)
+
+    answer = await handler.handle(tool, arguments)
+
+    assert "Livestatus is not running" in answer[0]["text"]
+    assert "HTTP 500: HTTP 500" not in answer[0]["text"]

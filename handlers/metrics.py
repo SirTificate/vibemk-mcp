@@ -149,14 +149,11 @@ class MetricsHandler(BaseHandler):
             ]
         except CheckMKError as e:
             # Handle host metrics request failure with detailed HTTP status analysis
-            http_status = getattr(e, "status_code", 0)
-            error_data = getattr(e, "error_data", {})
+            http_status = e.status_code or 0
+            error_data = e.response_data
             self.logger.debug("Host metrics request failed: HTTP %s, %s", http_status, error_data)
 
-            error_msg = (
-                self._http_error_message(http_status, error_data, host_name, "", metric_name)
-                or f"HTTP {http_status}: {error_data.get('title', str(e))}"
-            )
+            error_msg = self._http_error_message(http_status, error_data, host_name, "", metric_name) or str(e)
 
             return self.error_response(
                 "Failed to retrieve host metrics",
@@ -245,14 +242,13 @@ class MetricsHandler(BaseHandler):
             ]
         except CheckMKError as e:
             # Handle metrics request failure with detailed HTTP status analysis
-            http_status = getattr(e, "status_code", 0)
-            error_data = getattr(e, "error_data", {})
+            http_status = e.status_code or 0
+            error_data = e.response_data
             self.logger.debug("Metrics request failed: HTTP %s, %s", http_status, error_data)
 
-            error_msg = (
-                self._http_error_message(http_status, error_data, host_name, service_description, metric_name or "")
-                or f"HTTP {http_status}: {error_data.get('title', str(e))}"
-            )
+            error_msg = self._http_error_message(
+                http_status, error_data, host_name, service_description, metric_name or ""
+            ) or str(e)
 
             # Try to get available metrics for helpful error message
             try:
@@ -321,10 +317,7 @@ class MetricsHandler(BaseHandler):
         except CheckMKError as e:
             if e.status_code == self._HTTP_NOT_FOUND:
                 return self._commercial_only_response("Custom graph", e)
-            error_msg = (
-                self._http_error_message(e.status_code or 0, e.response_data, "", "", custom_graph_id)
-                or f"HTTP {e.status_code}: {e!s}"
-            )
+            error_msg = self._http_error_message(e.status_code or 0, e.response_data, "", "", custom_graph_id) or str(e)
             return self.error_response(
                 "Failed to retrieve custom graph", f"Could not get custom graph '{custom_graph_id}': {error_msg}"
             )
@@ -591,11 +584,13 @@ class MetricsHandler(BaseHandler):
                 f"Time range parameter error: {detail}. "
                 "Timestamps are sent as ISO-8601 UTC, e.g. 2026-09-14T12:00:00Z"
             )
-        if "metric_id" in detail or metric_name in detail:
+        # An empty name is part of every detail, so only a name that was given
+        # can be blamed.
+        if "metric_id" in detail or (metric_name and metric_name in detail):
             return f"Invalid metric ID '{metric_name}': {detail}. Metric may not exist for this service"
-        if "host_name" in detail or host_name in detail:
+        if "host_name" in detail or (host_name and host_name in detail):
             return f"Host parameter error: {detail}. Host '{host_name}' may not exist"
-        if "service_description" in detail or service_description in detail:
+        if "service_description" in detail or (service_description and service_description in detail):
             return (
                 f"Service parameter error: {detail}. "
                 f"Service '{service_description}' may not exist on host '{host_name}'"

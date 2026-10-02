@@ -128,11 +128,7 @@ class HostGroupRulesHandler(BaseHandler):
         # Use the working ruleset name we discovered
         working_ruleset = "host_contactgroups"
 
-        # Convert folder path: "/" -> "~", "/hosts/linux" -> "~hosts~linux"
-        if folder.startswith("/"):
-            api_folder = "~" + folder[1:].replace("/", "~") if folder != "/" else "~"
-        else:
-            api_folder = "~" + folder.replace("/", "~")
+        api_folder = self._folder_for_api(folder)
 
         # Format contact groups as single string if only one, otherwise as Python list string
         if isinstance(contact_groups, list):
@@ -239,7 +235,7 @@ class HostGroupRulesHandler(BaseHandler):
         # Build rule data structure for host groups according to CMDBsyncer working implementation
         rule_data = {
             "ruleset": working_ruleset,
-            "folder": folder,
+            "folder": self._folder_for_api(folder),
             "properties": {"disabled": False, "description": "Host group assignment via vibeMK", "comment": comment},
             "value_raw": host_groups,
         }
