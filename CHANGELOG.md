@@ -79,7 +79,9 @@ against live 2.5 Raw and Ultimate sites — the kind of check a mocked suite can
   only, and the check behind the removal read a Raw site's document, which cannot show
   that. Both tools now name the edition in their description and explain a 404 as the
   likely edition mismatch, and `scripts/verify_endpoints.py` lists commercial-only
-  endpoints separately instead of failing on a Raw site
+  endpoints separately instead of failing on a Raw site. `vibemk_search_metrics` also takes
+  the `graph_id` or `metric_id` the endpoint requires: the original never sent one, so it
+  could not have succeeded on any edition (found upstream against an Ultimate site)
 
 ### Changed
 - `force` is declared on the downtime scheduling tools that read it, and

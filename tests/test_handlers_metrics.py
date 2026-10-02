@@ -102,7 +102,11 @@ def test_a_time_range_error_shows_the_format_actually_sent(handler):
 # worth retrying, so both the catalogue and the answer have to name the edition.
 COMMERCIAL_ONLY = [
     ("vibemk_get_custom_graph", {"custom_graph_id": "my_graph"}, "domain-types/metric/actions/get_custom_graph/invoke"),
-    ("vibemk_search_metrics", {"host_filter": "web01"}, "domain-types/metric/actions/filter/invoke"),
+    (
+        "vibemk_search_metrics",
+        {"host_filter": "web01", "graph_id": "cpu_load"},
+        "domain-types/metric/actions/filter/invoke",
+    ),
 ]
 
 
@@ -180,3 +184,39 @@ async def test_another_error_keeps_the_detail_and_names_its_status_once(handler,
 
     assert "Livestatus is not running" in answer[0]["text"]
     assert "HTTP 500: HTTP 500" not in answer[0]["text"]
+
+
+# The filter endpoint reads one named graph or one named metric across every
+# host the filter matches; it has no mode that searches without naming one.
+# The original never sent graph_id, so every call on a commercial site answered
+# 400 -- found upstream against an Ultimate site (chexma/vibeMK@539a5a7).
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("given", "sent"),
+    [
+        ({"graph_id": "cpu_load"}, {"type": "predefined_graph", "graph_id": "cpu_load"}),
+        ({"metric_id": "load1"}, {"type": "single_metric", "metric_id": "load1"}),
+    ],
+)
+async def test_a_metric_search_names_what_it_reads(handler, mock_checkmk_client, given, sent):
+    mock_checkmk_client.post.return_value = {"success": True, "data": {"metrics": []}}
+
+    await handler.handle("vibemk_search_metrics", {"host_filter": "web01", **given})
+
+    body = mock_checkmk_client.post.call_args.kwargs["data"]
+    assert {key: body[key] for key in ("type", "graph_id", "metric_id") if key in body} == sent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("given", [{}, {"graph_id": "cpu_load", "metric_id": "load1"}])
+async def test_a_metric_search_needs_exactly_one_id(handler, mock_checkmk_client, given):
+    answer = await handler.handle("vibemk_search_metrics", {"host_filter": "web01", **given})
+
+    mock_checkmk_client.post.assert_not_called()
+    assert "graph_id" in answer[0]["text"]
+
+
+def test_the_metric_search_declares_both_ids():
+    tool = next(entry for entry in get_all_tools() if entry["name"] == "vibemk_search_metrics")
+
+    assert {"graph_id", "metric_id"} <= set(tool["inputSchema"]["properties"])
