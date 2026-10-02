@@ -1389,6 +1389,44 @@ def get_metrics_tools() -> List[Dict[str, Any]]:
             },
         },
         {
+            "name": "vibemk_get_custom_graph",
+            "description": (
+                "📊 Get custom graph - Retrieve predefined custom graph data. Requires a commercial edition: "
+                "a Raw site does not serve this endpoint and answers 404"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "custom_graph_id": {"type": "string", "description": "Custom graph ID"},
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range: '1h', '4h', '24h', '7d', '30d'",
+                        "default": "1h",
+                    },
+                    "reduce": {"type": "string", "description": "Aggregation function", "default": "max"},
+                },
+                "required": ["custom_graph_id"],
+            },
+        },
+        {
+            "name": "vibemk_search_metrics",
+            "description": (
+                "🔍 Search metrics - Filter and search performance data across hosts/services. Requires a "
+                "commercial edition: a Raw site does not serve this endpoint and answers 404"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "host_filter": {"type": "string", "description": "Host filter pattern"},
+                    "service_filter": {"type": "string", "description": "Service filter pattern (optional)"},
+                    "site_filter": {"type": "string", "description": "Site filter (optional)"},
+                    "time_range": {"type": "string", "description": "Time range", "default": "1h"},
+                    "reduce": {"type": "string", "description": "Aggregation function", "default": "max"},
+                },
+                "required": ["host_filter"],
+            },
+        },
+        {
             "name": "vibemk_list_available_metrics",
             "description": "📋 List available metrics - Show all available metrics for host or service",
             "inputSchema": {

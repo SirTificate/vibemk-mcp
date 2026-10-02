@@ -6,6 +6,7 @@ import pytest
 
 from api.exceptions import CheckMKAPIError
 from handlers.hosts import HostHandler
+from tests.test_live_smoke import host_names
 
 
 class TestHostHandler:
@@ -354,3 +355,23 @@ class TestListingHostsReadsItsArguments:
         await host_handler.handle("vibemk_get_checkmk_hosts", {"folder": "/servers/linux"})
 
         assert "effective_attributes" not in listing.get.call_args.kwargs.get("params", {})
+
+
+@pytest.mark.asyncio
+async def test_the_live_smoke_test_reads_every_listed_host_name(mock_checkmk_client):
+    """The smoke test takes its host from this listing. A CheckMK host name need
+    not be a domain name, and when the parser assumed one, every host and service
+    check skipped silently on a site without dotted names."""
+    mock_checkmk_client.get.return_value = {
+        "success": True,
+        "data": {
+            "value": [
+                {"id": "web01", "extensions": {"state": 0}},
+                {"id": "db01.example.com", "extensions": {"state": 1}},
+            ]
+        },
+    }
+
+    answer = await HostHandler(mock_checkmk_client).handle("vibemk_get_checkmk_hosts", {})
+
+    assert host_names(answer[0]["text"]) == ["web01", "db01.example.com"]

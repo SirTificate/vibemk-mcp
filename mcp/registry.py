@@ -111,6 +111,8 @@ class ToolRegistry:
                 # Metrics and performance data (RRD access)
                 "vibemk_get_host_metrics": metrics_handler,
                 "vibemk_get_service_metrics": metrics_handler,
+                "vibemk_get_custom_graph": metrics_handler,
+                "vibemk_search_metrics": metrics_handler,
                 "vibemk_list_available_metrics": metrics_handler,
                 # User management
                 "vibemk_get_users": user_handler,

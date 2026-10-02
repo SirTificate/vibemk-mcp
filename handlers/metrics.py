@@ -14,6 +14,7 @@ class MetricsHandler(BaseHandler):
 
     # CheckMK REST API status codes with dedicated diagnostics.
     _HTTP_BAD_REQUEST = 400
+    _HTTP_NOT_FOUND = 404
     _HTTP_NOT_ACCEPTABLE = 406
     _HTTP_UNSUPPORTED_MEDIA_TYPE = 415
 
@@ -30,6 +31,10 @@ class MetricsHandler(BaseHandler):
                 return await self._get_host_metrics(arguments)
             if tool_name == "vibemk_get_service_metrics":
                 return await self._get_service_metrics(arguments)
+            if tool_name == "vibemk_get_custom_graph":
+                return await self._get_custom_graph(arguments)
+            if tool_name == "vibemk_search_metrics":
+                return await self._search_metrics(arguments)
             if tool_name == "vibemk_list_available_metrics":
                 return await self._list_available_metrics(arguments)
             return self.error_response("Unknown tool", f"Tool '{tool_name}' is not supported")
@@ -283,6 +288,87 @@ class MetricsHandler(BaseHandler):
                 f"Could not get metrics for '{metric_name}' on '{host_name}/{service_description}': {error_msg}",
             )
 
+    def _commercial_only_response(self, what: str, error: CheckMKError) -> List[Dict[str, Any]]:
+        """Explain a 404 from an endpoint that only the commercial editions serve.
+
+        A Raw site answers 404 here, which reads to a model like a wrong path
+        worth retrying rather than a capability the site does not have.
+        """
+        return self.error_response(
+            f"{what}: not found (HTTP 404)",
+            f"{error}\n\nThis endpoint is served only by CheckMK's commercial editions; a Raw site "
+            "answers 404 for it. On Raw, use vibemk_get_host_metrics or vibemk_get_service_metrics "
+            "instead. On a commercial edition, the 404 refers to the request itself.",
+        )
+
+    async def _get_custom_graph(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get custom graph data (commercial editions only)"""
+        custom_graph_id = arguments.get("custom_graph_id")
+        time_range = arguments.get("time_range", "1h")
+        reduce_function = arguments.get("reduce", "max")
+
+        if not custom_graph_id:
+            return self.error_response("Missing parameter", "custom_graph_id is required")
+
+        data = {
+            "time_range": self._parse_time_range(time_range),
+            "reduce": reduce_function,
+            "custom_graph_id": custom_graph_id,
+        }
+
+        try:
+            result = self.client.post("domain-types/metric/actions/get_custom_graph/invoke", data=data)
+        except CheckMKError as e:
+            if e.status_code == self._HTTP_NOT_FOUND:
+                return self._commercial_only_response("Custom graph", e)
+            error_msg = (
+                self._http_error_message(e.status_code or 0, e.response_data, "", "", custom_graph_id)
+                or f"HTTP {e.status_code}: {e!s}"
+            )
+            return self.error_response(
+                "Failed to retrieve custom graph", f"Could not get custom graph '{custom_graph_id}': {error_msg}"
+            )
+
+        return [
+            {"type": "text", "text": self._format_custom_graph_response(custom_graph_id, result["data"], time_range)}
+        ]
+
+    async def _search_metrics(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Search for metrics using filters (commercial editions only)"""
+        host_filter = arguments.get("host_filter")
+        service_filter = arguments.get("service_filter")
+        site_filter = arguments.get("site_filter", self.client.config.site)
+        time_range = arguments.get("time_range", "1h")
+        reduce_function = arguments.get("reduce", "max")
+
+        if not host_filter:
+            return self.error_response("Missing parameter", "host_filter is required")
+
+        filter_data: Dict[str, Any] = {"siteopt": {"site": site_filter}, "host": {"host": host_filter}}
+        if service_filter:
+            filter_data["service"] = {"service": service_filter}
+
+        data = {
+            "time_range": self._parse_time_range(time_range),
+            "reduce": reduce_function,
+            "filter": filter_data,
+            "type": "predefined_graph",
+        }
+
+        try:
+            result = self.client.post("domain-types/metric/actions/filter/invoke", data=data)
+        except CheckMKError as e:
+            if e.status_code == self._HTTP_NOT_FOUND:
+                return self._commercial_only_response("Metric search", e)
+            raise
+
+        return [
+            {
+                "type": "text",
+                "text": self._format_search_results(host_filter, service_filter or "", result["data"], time_range),
+            }
+        ]
+
     async def _list_available_metrics(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """List available metrics for a host/service"""
         host_name = arguments.get("host_name")
@@ -381,6 +467,21 @@ class MetricsHandler(BaseHandler):
         response += "\n💡 **Use specific metric_name for detailed data**"
 
         return response
+
+    def _format_custom_graph_response(self, graph_id: str, metrics_data: Dict[str, Any], time_range: str) -> str:
+        """Format custom graph response"""
+        return f"📊 **Custom Graph: {graph_id}**\n\nTime Range: {time_range}\n\n" + self._format_metrics_response(
+            graph_id, "custom graph", metrics_data, time_range
+        )
+
+    def _format_search_results(
+        self, host_filter: str, service_filter: str, metrics_data: Dict[str, Any], time_range: str
+    ) -> str:
+        """Format search results"""
+        target = f"{host_filter}" + (f"/{service_filter}" if service_filter else "")
+        return f"🔍 **Metrics Search Results**\n\nFilter: {target}\n\n" + self._format_metrics_response(
+            target, "search", metrics_data, time_range
+        )
 
     def _format_service_metrics_response(
         self, host_name: str, service_description: str, metric_name: str, metrics_data: Dict[str, Any], time_range: str

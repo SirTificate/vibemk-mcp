@@ -24,7 +24,7 @@ misjudges one tool writes to somebody's production monitoring.
 import asyncio
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -135,12 +135,20 @@ def looks_broken(tool: str, answer: str) -> Optional[str]:
     return None
 
 
+def host_names(answer: str) -> List[str]:
+    """The host names in a vibemk_get_checkmk_hosts answer, whose lines read "🖥️ hostname (UP)".
+
+    A host name need not be a domain name, so no dot is required. The heading
+    line starts with "**" and does not match.
+    """
+    return re.findall(r"^\S+ ([A-Za-z0-9][A-Za-z0-9._-]*) \(", answer, re.M)
+
+
 @pytest.fixture(scope="module")
 def a_host(registry: ToolRegistry) -> str:
     """A host name taken from the instance itself."""
     answer = asyncio.run(call(registry, "vibemk_get_checkmk_hosts", {}))
-    # Lines read "🖥️ hostname (UP)".
-    hosts = re.findall(r"^\S+ ([A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+) \(", answer, re.M)
+    hosts = host_names(answer)
     if not hosts:
         pytest.skip(f"no host could be read from the instance: {answer[:200]}")
     return str(hosts[0])

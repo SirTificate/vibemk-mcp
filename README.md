@@ -89,7 +89,7 @@ This project is in the alpha stage and under development. I accept no liability 
 
 | CheckMK Version | Status | Notes |
 |-----------------|--------|-------|
-| **2.4.x** | ✅ Verified | All 151 endpoint calls checked against the API document of a 2.4.0p36 Raw site; read-only tools additionally exercised against it |
+| **2.4.x** | ✅ Verified | All 153 endpoint calls checked against the API document of a 2.4.0p36 Raw site — 151 match, the 2 commercial-only ones are absent as expected; read-only tools additionally exercised against it |
 | **2.3.x** | ⚠️ Expected to work | Same REST API version (1.0), not re-verified since the fork |
 | **2.2.x and older** | 🔴 Unsupported | |
 
@@ -109,7 +109,10 @@ Every endpoint call is now checked against the OpenAPI document the site publish
 ```
 
 That document carries the exact version *and* edition, so it cannot describe an endpoint a given
-site does not have. All 151 calls match a path and a verb that 2.4.0p36 Raw serves.
+site does not have. The converse does not hold: a Raw site's document cannot show what only the
+commercial editions serve, and an endpoint missing from it looks exactly like one that exists
+nowhere. Two calls go to such endpoints (see the edition section below); the script lists them
+separately instead of failing. The other 151 match a path and a verb that 2.4.0p36 Raw serves.
 
 **You can check this against your own site**, which is the point — your version and edition are not
 necessarily mine:
@@ -122,9 +125,10 @@ python scripts/verify_endpoints.py --spec downloaded.yaml
 It exits non-zero when a call has no matching path and verb, so it works as a pre-push check. The
 one dependency is PyYAML.
 
-Three tools were removed rather than left to fail quietly, because CheckMK's REST API offers no
-equivalent: `vibemk_reschedule_check`, `vibemk_get_custom_graph` and `vibemk_search_metrics`. 114
-tools remain.
+`vibemk_reschedule_check` was removed rather than left to fail quietly: CheckMK's REST API offers
+no equivalent. 0.5.0 removed `vibemk_get_custom_graph` and `vibemk_search_metrics` with it on the
+same reasoning, which was wrong for those two — their endpoints exist in the commercial editions.
+Both are back. 116 tools.
 
 There is also a read-only smoke test against a live instance, behind `LIVE_SMOKE_TEST=true` and
 deliberately kept out of CI:
@@ -135,11 +139,15 @@ LIVE_SMOKE_TEST=true python -m pytest tests/test_live_smoke.py -v
 
 ## Checkmk Edition Support
 
-Every tool in this server uses REST API endpoints that CheckMK registers for **all editions,
-including Raw (CRE)**. Nothing here needs a commercial edition.
+Every tool but two uses REST API endpoints that CheckMK registers for **all editions, including
+Raw (CRE)**. The exceptions are `vibemk_get_custom_graph` and `vibemk_search_metrics`: they call
+`metric/actions/get_custom_graph` and `metric/actions/filter`, which only the commercial editions
+serve. On a Raw site both answer 404, and both say so in their description and in their answer.
 
-The one genuine edition restriction in the API is the **Agent Bakery**, which exists only in the
-Enterprise and Cloud editions. It is not implemented here, and on a Raw site there is nothing to
+Comparing the API documents of a Raw and an Ultimate 2.5.0p14 site, which the upstream maintainer
+did in [chexma/vibeMK#6](https://github.com/chexma/vibeMK/issues/6), finds 21 paths only the
+commercial edition serves: the **Agent Bakery**, DCD, licensing, SAML, SLA, and the two metric
+actions above. The Agent Bakery is not implemented here, and on a Raw site there is nothing to
 implement: the agent domain offers only `actions/download`, with no baking endpoint at all.
 
 **A correction to the original README, which is not a claim about this server:** it listed Business

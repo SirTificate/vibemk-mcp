@@ -13,7 +13,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from api.exceptions import CheckMKNotFoundError
 from handlers.metrics import MetricsHandler
+from mcp.tools import get_all_tools
 
 TIMEZONES = ("Europe/Berlin", "UTC", "America/New_York")
 
@@ -91,3 +93,41 @@ def test_a_time_range_error_shows_the_format_actually_sent(handler):
     message = handler._handle_400_error({"detail": "time_range is invalid"}, "web01", "Check_MK", "util")
 
     assert ISO_UTC.search(message), f"the advice should show the shape the code transmits, got: {message}"
+
+
+# get_custom_graph and search_metrics call endpoints that only the commercial
+# editions serve. A Raw site's API document lacks them, which looks exactly like
+# a path that was never there -- they were removed for that reason once, and
+# wrongly. On Raw they answer 404, which reads to a model like a wrong path
+# worth retrying, so both the catalogue and the answer have to name the edition.
+COMMERCIAL_ONLY = [
+    ("vibemk_get_custom_graph", {"custom_graph_id": "my_graph"}, "domain-types/metric/actions/get_custom_graph/invoke"),
+    ("vibemk_search_metrics", {"host_filter": "web01"}, "domain-types/metric/actions/filter/invoke"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("tool", "arguments", "endpoint"), COMMERCIAL_ONLY)
+async def test_commercial_metric_tools_call_their_endpoint(handler, mock_checkmk_client, tool, arguments, endpoint):
+    mock_checkmk_client.post.return_value = {"success": True, "data": {"metrics": []}}
+
+    await handler.handle(tool, arguments)
+
+    assert mock_checkmk_client.post.call_args.args[0] == endpoint
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("tool", "arguments"), [(tool, arguments) for tool, arguments, _ in COMMERCIAL_ONLY])
+async def test_a_404_names_the_edition(handler, mock_checkmk_client, tool, arguments):
+    mock_checkmk_client.post.side_effect = CheckMKNotFoundError("HTTP 404: Not Found", 404, {"title": "Not Found"})
+
+    answer = await handler.handle(tool, arguments)
+
+    assert "commercial edition" in answer[0]["text"]
+
+
+@pytest.mark.parametrize("tool", [tool for tool, _, _ in COMMERCIAL_ONLY])
+def test_the_catalogue_says_which_tools_need_a_commercial_edition(tool):
+    descriptions = {entry["name"]: entry["description"] for entry in get_all_tools()}
+
+    assert "commercial edition" in descriptions[tool]

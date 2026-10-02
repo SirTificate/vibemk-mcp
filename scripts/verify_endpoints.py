@@ -11,6 +11,10 @@ with every `self.client.<verb>("…")` call in handlers/.
 
 Exits non-zero when a call has no matching path and verb, so it can run before a
 push. Requires PyYAML; everything else is standard library.
+
+The document describes one edition. Calls to endpoints only the commercial
+editions serve are listed separately when a Raw site's document lacks them, and
+do not fail the check.
 """
 
 import argparse
@@ -21,10 +25,18 @@ import ssl
 import sys
 import urllib.request
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 VERBS = ("get", "post", "put", "delete", "patch")
 HANDLER_DIR = Path("handlers")
+
+# Served only by the commercial editions. A Raw site's document lacks them, which
+# looks exactly like a path that was never there, so a miss on one of these is
+# reported separately rather than as a mismatch.
+COMMERCIAL_ONLY = {
+    "domain-types/metric/actions/filter/invoke",
+    "domain-types/metric/actions/get_custom_graph/invoke",
+}
 
 
 def fetch_spec() -> str:
@@ -114,34 +126,52 @@ def collect_calls() -> Tuple[List[Tuple[str, str, str]], List[str]]:
     return calls, unresolved
 
 
-def check(spec_text: str) -> int:
-    import yaml  # noqa: PLC0415  -- the one third-party import, kept out of the package
-
-    paths = yaml.safe_load(spec_text)["paths"]
+def compare(paths: Dict[str, Any], calls: List[Tuple[str, str, str]]) -> Tuple[List[str], List[str]]:
+    """Return the calls this document does not serve: mismatches, and endpoints of another edition."""
     matchers = [(re.compile("^" + re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(path)) + "$"), path) for path in paths]
-
-    calls, unresolved = collect_calls()
-    problems: List[str] = []
+    mismatches: List[str] = []
+    other_edition: List[str] = []
 
     for verb, endpoint, where in calls:
         candidate = "/" + re.sub(r"\{[^}]+\}", "X", endpoint).lstrip("/")
         # Every matching path, not just the first: a literal path otherwise
         # hides the parameterised one it shares a prefix with.
         hits = [path for pattern, path in matchers if pattern.match(candidate)]
-        if not hits:
-            problems.append(f"{where}\n    {verb} {endpoint}\n    no such path in this version")
+        if not hits and endpoint in COMMERCIAL_ONLY:
+            other_edition.append(f"{where}\n    {verb} {endpoint}")
+        elif not hits:
+            mismatches.append(f"{where}\n    {verb} {endpoint}\n    no such path in this version")
         elif not any(verb.lower() in paths[path] for path in hits):
             allowed = sorted({v.upper() for path in hits for v in paths[path] if v in VERBS})
-            problems.append(f"{where}\n    {verb} {endpoint}\n    path exists, but only {', '.join(allowed)}")
+            mismatches.append(f"{where}\n    {verb} {endpoint}\n    path exists, but only {', '.join(allowed)}")
+
+    return mismatches, other_edition
+
+
+def check(spec_text: str) -> int:
+    import yaml  # noqa: PLC0415  -- the one third-party import, kept out of the package
+
+    calls, unresolved = collect_calls()
+    problems, other_edition = compare(yaml.safe_load(spec_text)["paths"], calls)
 
     print(f"{len(calls)} endpoint calls checked, {len(unresolved)} not statically resolvable")
+    if other_edition:
+        print(
+            f"\n{len(other_edition)} go to endpoints only the commercial editions serve; this document "
+            "does not have them, which is expected on a Raw site:\n"
+        )
+        for entry in other_edition:
+            print(f"  {entry}\n")
     if problems:
         print(f"\n{len(problems)} do not match this site's API:\n")
         for problem in problems:
             print(f"  {problem}\n")
         return 1
 
-    print("all of them match a path and a verb this site serves")
+    if other_edition:
+        print("every other call matches a path and a verb this site serves")
+    else:
+        print("all of them match a path and a verb this site serves")
     return 0
 
 
