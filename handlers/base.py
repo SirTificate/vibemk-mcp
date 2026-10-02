@@ -28,6 +28,17 @@ class BaseHandler(ABC):
     async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle tool call and return MCP response content"""
 
+    @staticmethod
+    def _folder_for_api(folder: str) -> str:
+        """Address a folder the way CheckMK expects it.
+
+        A folder reads "/servers/linux" but is addressed as "~servers~linux";
+        sending the readable form answers 404 for anything below the root.
+        Callers may already use the tilde form, which must not gain a second
+        tilde: "~~servers~linux" names no folder.
+        """
+        return "~" + folder.replace("~", "/").strip("/").replace("/", "~")
+
     def _if_match_header(self, endpoint: str) -> Dict[str, str]:
         """Build an If-Match header from the current ETag of an object.
 

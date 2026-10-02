@@ -218,11 +218,7 @@ class RulesHandler(BaseHandler):
             return self.error_response("Missing parameter", "rule_config is required")
 
         # Build rule data structure according to CheckMK 2.3 OpenAPI specification
-        # Convert folder path: "/" -> "~", "/hosts/linux" -> "~hosts~linux"
-        if folder.startswith("/"):
-            api_folder = "~" + folder[1:].replace("/", "~") if folder != "/" else "~"
-        else:
-            api_folder = "~" + folder.replace("/", "~")
+        api_folder = self._folder_for_api(folder)
 
         # Use the validation method to format the value correctly
         value_raw = await self._validate_ruleset_value(ruleset_name, rule_config)

@@ -113,12 +113,7 @@ class FolderHandler(BaseHandler):
         if not folder:
             return self.error_response("Missing parameter", "folder is required")
 
-        # Convert folder path to CheckMK API format
-        # /api -> ~api, /test/subfolder -> ~test~subfolder
-        if folder.startswith("/"):
-            encoded_folder = "~" + folder[1:].replace("/", "~")
-        else:
-            encoded_folder = "~" + folder.replace("/", "~")
+        encoded_folder = self._folder_for_api(folder)
 
         params = {"delete_mode": delete_mode}
         result = self.client.delete(f"objects/folder_config/{encoded_folder}", params=params)
@@ -149,11 +144,7 @@ class FolderHandler(BaseHandler):
         if not folder:
             return self.error_response("Missing parameter", "folder is required")
 
-        # Convert folder path to CheckMK API format
-        if folder.startswith("/"):
-            encoded_folder = "~" + folder[1:].replace("/", "~")
-        else:
-            encoded_folder = "~" + folder.replace("/", "~")
+        encoded_folder = self._folder_for_api(folder)
 
         data = {}
         if title:
@@ -178,11 +169,7 @@ class FolderHandler(BaseHandler):
         if not folder or not destination:
             return self.error_response("Missing parameters", "folder and destination are required")
 
-        # Convert folder path to CheckMK API format
-        if folder.startswith("/"):
-            encoded_folder = "~" + folder[1:].replace("/", "~")
-        else:
-            encoded_folder = "~" + folder.replace("/", "~")
+        encoded_folder = self._folder_for_api(folder)
 
         data = {"destination": destination}
         headers = self._if_match_header(f"objects/folder_config/{encoded_folder}")
@@ -204,11 +191,7 @@ class FolderHandler(BaseHandler):
         if not folder:
             return self.error_response("Missing parameter", "folder is required")
 
-        # Convert folder path to CheckMK API format
-        if folder.startswith("/"):
-            encoded_folder = "~" + folder[1:].replace("/", "~")
-        else:
-            encoded_folder = "~" + folder.replace("/", "~")
+        encoded_folder = self._folder_for_api(folder)
 
         result = self.client.get(f"objects/folder_config/{encoded_folder}/collections/hosts")
 

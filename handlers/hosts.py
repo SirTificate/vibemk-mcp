@@ -60,17 +60,6 @@ class HostHandler(BaseHandler):
             self.logger.exception("Error in %s", tool_name)
             return self.error_response("Unexpected Error", str(e))
 
-    @staticmethod
-    def _folder_for_api(folder: str) -> str:
-        """Address a folder the way CheckMK expects it.
-
-        A folder reads "/servers/linux" but is addressed as "~servers~linux";
-        sending the readable form answers 404 for anything below the root.
-        """
-        if folder in ("", "/", "~"):
-            return "~"
-        return "~" + folder.strip("/").replace("/", "~")
-
     async def _get_hosts(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get list of hosts, optionally narrowed to one folder.
 
