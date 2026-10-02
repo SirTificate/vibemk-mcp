@@ -8,6 +8,10 @@ Findings from an external review of the server, each verified against the API do
 the instance publishes before being acted on. Several change behaviour; the first four
 change it in ways an existing caller will notice.
 
+Three more came from the upstream maintainer in
+[chexma/vibeMK#6](https://github.com/chexma/vibeMK/issues/6), found by running every tool
+against live 2.5 Raw and Ultimate sites — the kind of check a mocked suite cannot make.
+
 ### Fixed
 - **Deleting one downtime deleted more than one.** `vibemk_delete_downtime` resolved its
   `downtime_id` into the downtime's host and comment and then deleted by a *regex* query
@@ -46,11 +50,25 @@ change it in ways an existing caller will notice.
   re-issued after the first attempt had already taken effect. Retries are limited to the
   methods HTTP calls idempotent, 429 is retried with `Retry-After`, and an explicitly empty
   body is sent as `{}` rather than dropped
+- **`vibemk_create_host_tag` failed on every 2.4 and 2.5 site.** It identified the new tag
+  group as `ident`, which CheckMK 2.4.0b1 renamed to `id` and stopped accepting (Werk
+  16364). 2.2 and 2.3 accept both, so `id` alone serves every supported version. Nothing
+  here caught it: the tool writes, so the live smoke test never calls it, and
+  `scripts/verify_endpoints.py` checks paths and verbs, not body fields
+- **The live smoke test skipped silently on some sites.** Its host fixture only accepted
+  names with a dot, but a CheckMK host name need not be a domain name; on a site without
+  one, every host and service check skipped
 
 ### Added
 - `scripts/verify_endpoints.py` — checks every endpoint call against the API document your
   own site publishes, and exits non-zero on a mismatch. This is the check that catches the
   class of defect the last two releases were about
+- `vibemk_get_custom_graph` and `vibemk_search_metrics` are back. 0.5.0 removed them for
+  having no endpoint, and that was wrong: their endpoints exist in the commercial editions
+  only, and the check behind the removal read a Raw site's document, which cannot show
+  that. Both tools now name the edition in their description and explain a 404 as the
+  likely edition mismatch, and `scripts/verify_endpoints.py` lists commercial-only
+  endpoints separately instead of failing on a Raw site
 
 ### Changed
 - `force` is declared on the downtime scheduling tools that read it, and
@@ -124,7 +142,10 @@ change it in ways an existing caller will notice.
   of the three had an endpoint behind it: the string "reschedule" appears nowhere in the
   API document, and the metric domain offers `actions/get` alone — not `actions/filter`
   or `actions/get_custom_graph`. They reported a plain failure, which reads like a
-  transient error rather than a capability CheckMK does not expose over REST
+  transient error rather than a capability CheckMK does not expose over REST.
+  **Correction:** this holds for `vibemk_reschedule_check` only. The two metric endpoints
+  exist in the commercial editions, which a Raw site's document cannot show; both tools
+  are restored in [Unreleased]
 - Four dispatch branches no request could reach, because the registry routes their tools
   to a different handler: service group create, update and delete in `handlers/groups.py`,
   whose live counterparts in `handlers/service_groups.py` are a superset, and
