@@ -1411,8 +1411,10 @@ def get_metrics_tools() -> List[Dict[str, Any]]:
         {
             "name": "vibemk_search_metrics",
             "description": (
-                "🔍 Search metrics - Filter and search performance data across hosts/services. Requires a "
-                "commercial edition: a Raw site does not serve this endpoint and answers 404"
+                "🔍 Search metrics - Read one predefined graph (graph_id) or one metric (metric_id) across "
+                "the hosts and services a filter matches. Exactly one of the two IDs is required; both are "
+                "shown in the service view once 'Show internal IDs' is enabled in its display options. "
+                "Requires a commercial edition: a Raw site does not serve this endpoint and answers 404"
             ),
             "inputSchema": {
                 "type": "object",
@@ -1420,6 +1422,14 @@ def get_metrics_tools() -> List[Dict[str, Any]]:
                     "host_filter": {"type": "string", "description": "Host filter pattern"},
                     "service_filter": {"type": "string", "description": "Service filter pattern (optional)"},
                     "site_filter": {"type": "string", "description": "Site filter (optional)"},
+                    "graph_id": {
+                        "type": "string",
+                        "description": "ID of a predefined graph, e.g. cmk_cpu_time_by_phase. Exclusive with metric_id",
+                    },
+                    "metric_id": {
+                        "type": "string",
+                        "description": "ID of a single metric, e.g. cmk_time_agent. Exclusive with graph_id",
+                    },
                     "time_range": {"type": "string", "description": "Time range", "default": "1h"},
                     "reduce": {"type": "string", "description": "Aggregation function", "default": "max"},
                 },
