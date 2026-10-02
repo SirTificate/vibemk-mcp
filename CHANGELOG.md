@@ -58,6 +58,17 @@ against live 2.5 Raw and Ultimate sites — the kind of check a mocked suite can
 - **The live smoke test skipped silently on some sites.** Its host fixture only accepted
   names with a dot, but a CheckMK host name need not be a domain name; on a site without
   one, every host and service check skipped
+- **A folder given as `~servers~linux` became `~~servers~linux`.** Seven places converted
+  folder paths by hand — the four folder tools, `vibemk_create_rule` and the two host
+  grouping rules — and each prefixed a second tilde to the form CheckMK itself uses, so the
+  call went to a folder that does not exist. The root `~` became `~~` the same way. One
+  conversion now serves all of them, and reads `/servers/linux`, `servers/linux` and
+  `~servers~linux` alike
+- **The metric diagnostics never saw CheckMK's explanation.** They read the error body from
+  an attribute the exception does not have, so a 400 was explained from an empty detail.
+  Against that, every check for an empty name matched, and a host metric's 400 was blamed
+  on a service named `''`. Other errors repeated their status (`HTTP 500: HTTP 500`) or lost
+  the detail. All three are fixed
 
 ### Added
 - `scripts/verify_endpoints.py` — checks every endpoint call against the API document your
