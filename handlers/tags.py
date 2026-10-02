@@ -81,7 +81,9 @@ class TagsHandler(BaseHandler):
             if not isinstance(tag, dict) or "id" not in tag or "title" not in tag:
                 return self.error_response("Invalid tag structure", "Each tag must have 'id' and 'title' fields")
 
-        data = {"ident": tag_id, "title": title, "tags": tags}
+        # 2.4 renamed "ident" to "id" and rejects the old name; 2.2 and 2.3
+        # accept both (Werk 16364).
+        data = {"id": tag_id, "title": title, "tags": tags}
 
         if topic:
             data["topic"] = topic
